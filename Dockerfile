@@ -1,5 +1,9 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
+LABEL org.opencontainers.image.source="https://github.com/namJeongwan/suparch" \
+      org.opencontainers.image.description="Structured supplement facts MCP server" \
+      io.modelcontextprotocol.server.name="io.github.namjeongwan/suparch"
+
 WORKDIR /app
 
 COPY pyproject.toml uv.lock README.md LICENSE ./

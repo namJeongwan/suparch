@@ -3,6 +3,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 
 from suparch.models import (
+    CatalogInfo,
     Product,
     ProductComparisonResult,
     ProductSearchQuery,
@@ -67,6 +68,12 @@ def get_product(product_id: str) -> Product:
     if product is None:
         raise ValueError(f"Unknown product_id: {product_id}")
     return product
+
+
+@mcp.tool()
+def get_catalog_info() -> CatalogInfo:
+    """Return catalog version, product count, and snapshot metadata."""
+    return service.catalog_info()
 
 
 @mcp.tool()

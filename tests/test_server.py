@@ -23,6 +23,7 @@ def test_registers_expected_mcp_tools() -> None:
     assert {tool.name for tool in tools} == {
         "search_products",
         "get_product",
+        "get_catalog_info",
         "compare_products",
         "calculate_stack",
     }
