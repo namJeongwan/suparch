@@ -92,5 +92,6 @@ def test_does_not_mix_iherb_and_dsld_label_bundles() -> None:
 
     assert enriched.serving_size == iherb.serving_size
     assert enriched.servings_per_container == iherb.servings_per_container
+    assert enriched.target_groups == iherb.target_groups
     assert enriched.active_ingredients == iherb.active_ingredients
     assert enriched.other_ingredients == iherb.other_ingredients
