@@ -5,6 +5,7 @@ import shutil
 import sqlite3
 import tempfile
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import TypeAdapter
@@ -103,10 +104,26 @@ CREATE VIRTUAL TABLE product_search USING fts5(
 
 
 def load_json_catalog(path: Path) -> list[Product]:
+    if path.suffix.casefold() == ".jsonl":
+        payload = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        return TypeAdapter(list[Product]).validate_python(payload)
+
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, dict):
         payload = [payload]
     return TypeAdapter(list[Product]).validate_python(payload)
+
+
+def load_catalog_inputs(paths: list[Path]) -> list[Product]:
+    products_by_id: dict[str, Product] = {}
+    for path in paths:
+        for product in load_json_catalog(path):
+            products_by_id[product.id] = product
+    return list(products_by_id.values())
 
 
 class SQLiteCatalogBuilder:
@@ -346,3 +363,56 @@ def validate_catalog(path: Path) -> None:
                     f"Catalog table {table} is missing columns: "
                     f"{sorted(missing_columns)}"
                 )
+
+
+def catalog_sha256(path: Path) -> str:
+    with path.open("rb") as catalog_file:
+        return hashlib.file_digest(catalog_file, "sha256").hexdigest()
+
+
+def write_catalog_artifacts(path: Path) -> tuple[Path, Path]:
+    path = path.resolve()
+    validate_catalog(path)
+    checksum = catalog_sha256(path)
+    checksum_path = Path(f"{path}.sha256")
+    manifest_path = Path(f"{path}.manifest.json")
+
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as connection:
+        metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+        product_count = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+
+    manifest = {
+        "catalog": path.name,
+        "sha256": checksum,
+        "bytes": path.stat().st_size,
+        "schema_version": schema_version,
+        "product_count": product_count,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "metadata": metadata,
+    }
+    _atomic_write_text(checksum_path, f"{checksum}  {path.name}\n")
+    _atomic_write_text(
+        manifest_path,
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+    )
+    return manifest_path, checksum_path
+
+
+def _atomic_write_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as output:
+            output.write(value)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise

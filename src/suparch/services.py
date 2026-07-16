@@ -1,4 +1,5 @@
 from suparch.models import (
+    CatalogInfo,
     ComparisonEntry,
     IngredientComparison,
     Product,
@@ -21,6 +22,9 @@ class CatalogService:
 
     def get_product(self, product_id: str) -> Product | None:
         return self._repository.get_product(product_id)
+
+    def catalog_info(self) -> CatalogInfo:
+        return self._repository.catalog_info()
 
     def search_products(self, search: ProductSearchQuery) -> ProductSearchResult:
         return self._repository.search_products(search)

@@ -1,5 +1,7 @@
 # Suparch
 
+<!-- mcp-name: io.github.namjeongwan/suparch -->
+
 Search supplements by what's inside.
 
 Suparch is an open-source MCP server for searching, comparing, and calculating
@@ -13,6 +15,7 @@ calculations; it does not diagnose conditions or recommend supplements.
 - `get_product`: return the complete normalized label record for a product.
 - `compare_products`: compare per-serving ingredients and forms.
 - `calculate_stack`: add known label amounts for user-supplied daily servings.
+- `get_catalog_info`: report snapshot schema, size, timestamps, and product count.
 
 Production deployments use an immutable SQLite snapshot opened in read-only
 mode. The crawler and catalog builder run separately from the public MCP
@@ -60,7 +63,15 @@ uv run suparch-catalog verify \
 ```
 
 The builder writes to a temporary file, runs SQLite integrity checks, and
-publishes the final database with an atomic rename.
+publishes the final database with an atomic rename. It also creates:
+
+```text
+catalog.sqlite.sha256
+catalog.sqlite.manifest.json
+```
+
+Inputs may be a JSON object, JSON array, or JSONL file. Repeat `--input` to
+merge multiple normalized files into one snapshot.
 
 ## Parse a saved iHerb product page
 
@@ -105,6 +116,11 @@ operator explicitly passes `--allow-live-fetch`. It checks the current
 anti-bot bypass, or browser fingerprint evasion. Operators remain responsible
 for reviewing the site's current terms before using it.
 
+At the time of the latest project check, iHerb's robots policy rejected product
+page fetching for the Suparch user agent. Suparch preserves that fail-closed
+behavior. See [docs/data-sources.md](docs/data-sources.md) for approved-input
+options and the official affiliate path.
+
 ## Hub deployment
 
 Run the stateless Streamable HTTP transport:
@@ -138,6 +154,13 @@ docker run --rm -p 8000:8000 \
   -e SUPARCH_CATALOG_URL=https://cdn.example.com/catalog.sqlite \
   suparch
 ```
+
+## MCP Registry
+
+The repository includes an official Registry-compatible `server.json` for the
+OCI package `ghcr.io/namjeongwan/suparch`. Version tags such as `v0.1.0`
+publish the corresponding image through GitHub Actions. Registry publication
+should only run after that exact image tag is publicly available.
 
 ## JSON catalog format
 

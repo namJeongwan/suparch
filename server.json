@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.namjeongwan/suparch",
+  "title": "Suparch",
+  "description": "An open-source MCP server for searching, comparing, and calculating supplement facts.",
+  "repository": {
+    "url": "https://github.com/namJeongwan/suparch",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/namjeongwan/suparch:0.1.0",
+      "version": "0.1.0",
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-p",
+          "value": "8000:8000"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "SUPARCH_CATALOG_URL",
+          "description": "HTTPS URL of a published Suparch SQLite catalog snapshot.",
+          "isRequired": true,
+          "isSecret": false
+        },
+        {
+          "name": "SUPARCH_CATALOG_SHA256",
+          "description": "Expected SHA-256 for the catalog snapshot.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ],
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:8000/mcp"
+      }
+    }
+  ]
+}

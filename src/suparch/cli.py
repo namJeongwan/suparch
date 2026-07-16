@@ -4,7 +4,12 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from suparch.catalog import SQLiteCatalogBuilder, load_json_catalog
+from suparch.catalog import (
+    SQLiteCatalogBuilder,
+    catalog_sha256,
+    load_catalog_inputs,
+    write_catalog_artifacts,
+)
 from suparch.crawler import IHerbClient
 from suparch.models import Product
 from suparch.parser import IHerbProductParser
@@ -30,16 +35,21 @@ def _merge_products(database: Path, new_products: list[Product]) -> None:
         database,
         metadata={"updated_at": datetime.now(UTC).isoformat()},
     )
+    write_catalog_artifacts(database)
 
 
 def _build(args: argparse.Namespace) -> None:
-    products = load_json_catalog(args.input)
+    products = load_catalog_inputs(args.input)
     SQLiteCatalogBuilder().build(
         products,
         args.output,
         metadata={"built_at": datetime.now(UTC).isoformat()},
     )
-    print(f"built {args.output} with {len(products)} products")
+    manifest_path, checksum_path = write_catalog_artifacts(args.output)
+    print(
+        f"built {args.output} with {len(products)} products; "
+        f"manifest={manifest_path}; checksum={checksum_path}"
+    )
 
 
 def _parse_html(args: argparse.Namespace) -> None:
@@ -102,6 +112,14 @@ def _verify(args: argparse.Namespace) -> None:
         integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
         product_count = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
         schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+    checksum = catalog_sha256(args.database)
+    checksum_path = Path(f"{args.database.resolve()}.sha256")
+    if checksum_path.is_file():
+        expected = checksum_path.read_text(encoding="utf-8").split()[0]
+        if checksum != expected:
+            raise SystemExit(
+                f"catalog checksum mismatch: expected {expected}, got {checksum}"
+            )
     if integrity != "ok":
         raise SystemExit(f"catalog integrity check failed: {integrity}")
     print(
@@ -111,6 +129,7 @@ def _verify(args: argparse.Namespace) -> None:
                 "integrity": integrity,
                 "schema_version": schema_version,
                 "product_count": product_count,
+                "sha256": checksum,
             },
             indent=2,
         )
@@ -125,7 +144,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     build = subparsers.add_parser("build", help="Build SQLite from a JSON catalog")
-    build.add_argument("--input", type=Path, required=True)
+    build.add_argument(
+        "--input",
+        type=Path,
+        action="append",
+        required=True,
+        help="JSON or JSONL input; repeat to merge multiple files",
+    )
     build.add_argument("--output", type=Path, required=True)
     build.set_defaults(handler=_build)
 

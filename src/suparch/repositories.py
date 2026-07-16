@@ -7,7 +7,13 @@ from typing import Protocol
 from pydantic import TypeAdapter
 
 from suparch.catalog import validate_catalog
-from suparch.models import Product, ProductSearchQuery, ProductSearchResult, ProductSummary
+from suparch.models import (
+    CatalogInfo,
+    Product,
+    ProductSearchQuery,
+    ProductSearchResult,
+    ProductSummary,
+)
 from suparch.normalization import canonicalize_ingredient, normalize_text
 
 
@@ -19,6 +25,8 @@ class CatalogRepository(Protocol):
     def search_products(self, search: ProductSearchQuery) -> ProductSearchResult: ...
 
     def get_products(self, product_ids: list[str]) -> list[Product]: ...
+
+    def catalog_info(self) -> CatalogInfo: ...
 
 
 class InMemoryCatalogRepository:
@@ -46,6 +54,12 @@ class InMemoryCatalogRepository:
         return ProductSearchResult(
             products=[ProductSummary.from_product(product) for product in selected],
             total=total,
+        )
+
+    def catalog_info(self) -> CatalogInfo:
+        return CatalogInfo(
+            product_count=len(self._products),
+            source="memory",
         )
 
 
@@ -231,6 +245,20 @@ class SqliteCatalogRepository:
         return ProductSearchResult(
             products=[ProductSummary.from_product(product) for product in ordered],
             total=total,
+        )
+
+    def catalog_info(self) -> CatalogInfo:
+        with self._connect() as connection:
+            metadata = dict(connection.execute("SELECT key, value FROM metadata"))
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            product_count = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+        return CatalogInfo(
+            schema_version=version,
+            product_count=product_count,
+            source="sqlite",
+            built_at=metadata.get("built_at"),
+            updated_at=metadata.get("updated_at"),
+            database_bytes=self.path.stat().st_size,
         )
 
     @staticmethod

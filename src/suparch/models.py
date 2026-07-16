@@ -82,6 +82,15 @@ class ProductSearchResult(BaseModel):
     total: int
 
 
+class CatalogInfo(BaseModel):
+    schema_version: int | None = None
+    product_count: int
+    source: str
+    built_at: datetime | None = None
+    updated_at: datetime | None = None
+    database_bytes: int | None = None
+
+
 class ComparisonEntry(BaseModel):
     product_id: str
     product_name: str
