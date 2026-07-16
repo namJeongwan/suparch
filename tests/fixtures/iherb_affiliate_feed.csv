@@ -1,0 +1,8 @@
+Catalog Item ID,Name,URL,Manufacturer,Current Price,Currency,GTIN,Category,Stock Availability
+impact-1,"Doctor's Best, Magnesium Glycinate",https://www.iherb.com/pr/doctor-s-best-magnesium/12345,Doctor's Best,$19.99,USD,012345678905,Health > Supplements > Minerals,In Stock
+impact-duplicate,"Doctor's Best, Magnesium Glycinate",https://www.iherb.com/pr/doctor-s-best-magnesium/12345,Doctor's Best,$19.99,USD,012345678905,Health > Supplements > Minerals,In Stock
+impact-bath,Ordinary Shampoo,https://www.iherb.com/pr/ordinary-shampoo/22222,Example,$8.00,USD,012345678905,Bath > Hair Care,In Stock
+impact-eur,Vitamin D,https://www.iherb.com/pr/vitamin-d/33333,Example,€10.00,EUR,012345678905,Health > Supplements > Vitamins,In Stock
+impact-invalid,Vitamin C,https://example.com/pr/vitamin-c/44444,Example,$11.00,USD,012345678905,Health > Supplements > Vitamins,In Stock
+impact-no-gtin,Creatine Monohydrate,https://www.iherb.com/pr/creatine/55555,Example,$14.50,USD,,Sports > Supplements,In Stock
+impact-invalid-gtin,Zinc,https://www.iherb.com/pr/zinc/66666,Example,$9.50,USD,012345678904,Health > Supplements > Minerals,In Stock

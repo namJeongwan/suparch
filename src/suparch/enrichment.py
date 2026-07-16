@@ -9,6 +9,7 @@ from suparch.models import Product
 @dataclass(slots=True)
 class EnrichmentStats:
     matched: int = 0
+    skipped_without_label: int = 0
 
 
 def enrich_iherb_with_dsld(
@@ -16,6 +17,7 @@ def enrich_iherb_with_dsld(
     dsld_products: Iterable[Product],
     *,
     stats: EnrichmentStats | None = None,
+    require_label: bool = False,
 ) -> Iterator[Product]:
     with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as spool:
         candidate_upcs: set[str] = set()
@@ -47,6 +49,10 @@ def enrich_iherb_with_dsld(
             product = Product.model_validate_json(line)
             match = dsld_by_upc.get(_upc_match_key(product.upc))
             if match is None:
+                if require_label and not product.active_ingredients:
+                    if stats is not None:
+                        stats.skipped_without_label += 1
+                    continue
                 yield product
                 continue
             if stats is not None:
@@ -64,7 +70,7 @@ def enrich_iherb_with_dsld(
                     ],
                 )
             )
-            yield product.model_copy(
+            enriched_product = product.model_copy(
                 deep=True,
                 update={
                     "supplement_form": (
@@ -103,6 +109,11 @@ def enrich_iherb_with_dsld(
                     ),
                 },
             )
+            if require_label and not enriched_product.active_ingredients:
+                if stats is not None:
+                    stats.skipped_without_label += 1
+                continue
+            yield enriched_product
 
 
 def _upc_match_key(value: str | None) -> str:

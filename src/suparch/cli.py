@@ -6,6 +6,11 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from suparch.affiliate import (
+    AffiliateFeedPolicy,
+    AffiliateFeedStats,
+    IHerbAffiliateFeedReader,
+)
 from suparch.catalog import (
     SQLiteCatalogBuilder,
     catalog_sha256,
@@ -135,6 +140,63 @@ def _iherb_discover(args: argparse.Namespace) -> None:
     print(f"discovered {count} iHerb product URLs in {args.output}")
 
 
+def _import_iherb_feed(args: argparse.Namespace) -> None:
+    policy = AffiliateFeedPolicy(
+        locale="en-US",
+        currency="USD",
+        category_keywords=tuple(args.category or ["supplement"]),
+    )
+    stats = AffiliateFeedStats()
+    products = IHerbAffiliateFeedReader(policy).iter_products(
+        args.input,
+        stats=stats,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{args.output.name}.",
+        suffix=".tmp",
+        dir=args.output.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destination:
+            for product in products:
+                destination.write(product.model_dump_json() + "\n")
+            destination.flush()
+            os.fsync(destination.fileno())
+        if stats.imported == 0:
+            raise ValueError("Affiliate feed produced no English USD supplement products")
+        os.replace(temporary, args.output)
+    except Exception as error:
+        temporary.unlink(missing_ok=True)
+        raise SystemExit(str(error)) from None
+
+    print(
+        f"imported {stats.imported}/{stats.total} iHerb products; "
+        f"non_supplement={stats.non_supplement}; non_usd={stats.non_usd}; "
+        f"invalid={stats.invalid}; duplicates={stats.duplicates}; "
+        f"missing_gtin={stats.missing_gtin}; invalid_gtin={stats.invalid_gtin}; "
+        f"output={args.output}"
+    )
+    if args.database:
+        SQLiteCatalogBuilder().build(
+            iter_json_catalog(args.output),
+            args.database,
+            metadata={
+                "built_at": datetime.now(UTC).isoformat(),
+                "product_source": "iHerb affiliate feed",
+                "locale": "en-US",
+                "currency": "USD",
+                "label_status": "affiliate metadata; run DSLD enrichment for facts",
+            },
+        )
+        manifest_path, checksum_path = write_catalog_artifacts(args.database)
+        print(
+            f"built {args.database}; manifest={manifest_path}; "
+            f"checksum={checksum_path}"
+        )
+
+
 def _parse_manifest(args: argparse.Namespace) -> None:
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     if not isinstance(manifest, list):
@@ -214,6 +276,7 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
         iter_json_catalog(args.iherb),
         iter_dsld_products(args.dsld),
         stats=stats,
+        require_label=args.require_label,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(
@@ -237,7 +300,8 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
 
     print(
         f"wrote {count} iHerb products to {args.output}; "
-        f"DSLD matches={stats.matched}"
+        f"DSLD matches={stats.matched}; "
+        f"missing labels skipped={stats.skipped_without_label}"
     )
     if args.database:
         SQLiteCatalogBuilder().build(
@@ -317,6 +381,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     iherb_discover.set_defaults(handler=_iherb_discover)
 
+    import_iherb_feed = subparsers.add_parser(
+        "import-iherb-feed",
+        help="Import an approved English/USD iHerb affiliate CSV feed",
+    )
+    import_iherb_feed.add_argument("--input", type=Path, required=True)
+    import_iherb_feed.add_argument("--output", type=Path, required=True)
+    import_iherb_feed.add_argument("--database", type=Path)
+    import_iherb_feed.add_argument(
+        "--category",
+        action="append",
+        help="Required category substring; repeat to include more English categories",
+    )
+    import_iherb_feed.set_defaults(handler=_import_iherb_feed)
+
     verify = subparsers.add_parser("verify", help="Verify a SQLite catalog")
     verify.add_argument("--database", type=Path, required=True)
     verify.set_defaults(handler=_verify)
@@ -355,6 +433,11 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_dsld.add_argument("--dsld", type=Path, required=True)
     enrich_dsld.add_argument("--output", type=Path, required=True)
     enrich_dsld.add_argument("--database", type=Path)
+    enrich_dsld.add_argument(
+        "--require-label",
+        action="store_true",
+        help="Exclude products that still have no active Supplement Facts rows",
+    )
     enrich_dsld.set_defaults(handler=_enrich_dsld)
     return parser
 
