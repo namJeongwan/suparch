@@ -21,6 +21,12 @@ class AffiliateFeedPolicy:
     currency: str = "USD"
     category_keywords: tuple[str, ...] = ("supplement",)
 
+    def __post_init__(self) -> None:
+        keywords = tuple(keyword.strip() for keyword in self.category_keywords)
+        if not keywords or any(not keyword for keyword in keywords):
+            raise ValueError("category_keywords must contain non-blank values")
+        object.__setattr__(self, "category_keywords", keywords)
+
 
 @dataclass(slots=True)
 class AffiliateFeedStats:
@@ -32,6 +38,33 @@ class AffiliateFeedStats:
     missing_gtin: int = 0
     invalid_gtin: int = 0
     duplicates: int = 0
+
+    @property
+    def valid_gtins(self) -> int:
+        return self.imported - self.missing_gtin - self.invalid_gtin
+
+    @property
+    def import_rate(self) -> float:
+        return self.imported / self.total if self.total else 0.0
+
+    @property
+    def gtin_coverage(self) -> float:
+        return self.valid_gtins / self.imported if self.imported else 0.0
+
+    def as_dict(self) -> dict[str, int | float]:
+        return {
+            "total": self.total,
+            "imported": self.imported,
+            "non_supplement": self.non_supplement,
+            "non_usd": self.non_usd,
+            "invalid": self.invalid,
+            "missing_gtin": self.missing_gtin,
+            "invalid_gtin": self.invalid_gtin,
+            "duplicates": self.duplicates,
+            "valid_gtins": self.valid_gtins,
+            "import_rate": round(self.import_rate, 6),
+            "gtin_coverage": round(self.gtin_coverage, 6),
+        }
 
 
 class IHerbAffiliateFeedReader:
@@ -49,7 +82,7 @@ class IHerbAffiliateFeedReader:
     ) -> Iterator[Product]:
         counters = stats or AffiliateFeedStats()
         timestamp = imported_at or datetime.now(UTC)
-        seen_ids: set[str] = set()
+        seen_products: dict[str, tuple[object, ...]] = {}
         with _open_feed(path) as source:
             reader = csv.DictReader(source)
             if reader.fieldnames is None:
@@ -73,19 +106,18 @@ class IHerbAffiliateFeedReader:
                 except (InvalidOperation, ValueError):
                     counters.invalid += 1
                     continue
-                if product.id in seen_ids:
+                fingerprint = _product_fingerprint(product)
+                previous = seen_products.get(product.id)
+                if previous is not None:
+                    if previous != fingerprint:
+                        raise DuplicateProductConflictError(
+                            f"Conflicting duplicate iHerb product ID: {product.id}"
+                        )
                     counters.duplicates += 1
                     continue
-                seen_ids.add(product.id)
-                gtin_value = _first(
-                    row,
-                    "gtin",
-                    "upc",
-                    "upccode",
-                    "barcode",
-                    "ean",
-                )
-                if gtin_value and product.upc is None:
+                seen_products[product.id] = fingerprint
+                gtin_values = _barcode_values(row)
+                if gtin_values and product.upc is None:
                     counters.invalid_gtin += 1
                 elif product.upc is None:
                     counters.missing_gtin += 1
@@ -103,8 +135,7 @@ class IHerbAffiliateFeedReader:
         name = _required(row, "name", "title", "productname", "producttitle")
         brand = _required(row, "brand", "manufacturer", "vendor")
         price, currency = _price(row, self.policy.currency)
-        gtin_value = _first(row, "gtin", "upc", "upccode", "barcode", "ean")
-        gtin = canonicalize_gtin(gtin_value) if gtin_value else None
+        gtin = _canonical_gtin(row)
         return Product(
             id=f"iherb:{product_id}",
             source="iherb",
@@ -126,6 +157,34 @@ class IHerbAffiliateFeedReader:
 
 class CurrencyMismatchError(ValueError):
     pass
+
+
+class DuplicateProductConflictError(ValueError):
+    pass
+
+
+def affiliate_feed_quality_failures(
+    stats: AffiliateFeedStats,
+    *,
+    min_products: int = 1,
+    min_gtin_coverage: float = 0.0,
+) -> list[str]:
+    if min_products < 1:
+        raise ValueError("min_products must be positive")
+    if not 0 <= min_gtin_coverage <= 1:
+        raise ValueError("min_gtin_coverage must be between 0 and 1")
+
+    failures: list[str] = []
+    if stats.imported < min_products:
+        failures.append(
+            f"imported products {stats.imported} is below minimum {min_products}"
+        )
+    if stats.gtin_coverage < min_gtin_coverage:
+        failures.append(
+            f"GTIN coverage {stats.gtin_coverage:.2%} is below minimum "
+            f"{min_gtin_coverage:.2%}"
+        )
+    return failures
 
 
 def _open_feed(path: Path):
@@ -153,6 +212,38 @@ def _first(row: dict[str, str], *aliases: str) -> str | None:
         if value:
             return value
     return None
+
+
+def _barcode_values(row: dict[str, str]) -> list[str]:
+    return list(
+        dict.fromkeys(
+            value
+            for alias in ("gtin", "upc", "upccode", "barcode", "ean")
+            if (value := row.get(_field_key(alias)))
+        )
+    )
+
+
+def _canonical_gtin(row: dict[str, str]) -> str | None:
+    canonical = {
+        value
+        for raw_value in _barcode_values(row)
+        if (value := canonicalize_gtin(raw_value)) is not None
+    }
+    if len(canonical) > 1:
+        raise ValueError("Conflicting valid GTIN values in affiliate row")
+    return next(iter(canonical), None)
+
+
+def _product_fingerprint(product: Product) -> tuple[object, ...]:
+    return (
+        product.name,
+        product.brand,
+        product.upc,
+        product.product_type,
+        product.price.amount if product.price else None,
+        product.price.currency if product.price else None,
+    )
 
 
 def _required(row: dict[str, str], *aliases: str) -> str:

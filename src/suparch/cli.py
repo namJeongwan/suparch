@@ -10,6 +10,7 @@ from suparch.affiliate import (
     AffiliateFeedPolicy,
     AffiliateFeedStats,
     IHerbAffiliateFeedReader,
+    affiliate_feed_quality_failures,
 )
 from suparch.catalog import (
     SQLiteCatalogBuilder,
@@ -20,10 +21,79 @@ from suparch.catalog import (
 )
 from suparch.crawler import IHerbClient, IHerbSitemapClient
 from suparch.dsld import DsldClient, iter_dsld_products, sync_dsld_to_jsonl
-from suparch.enrichment import EnrichmentStats, enrich_iherb_with_dsld
+from suparch.enrichment import (
+    EnrichmentStats,
+    enrich_iherb_with_dsld,
+    enrichment_quality_failures,
+)
 from suparch.models import Product
 from suparch.parser import IHerbProductParser
 from suparch.repositories import SqliteCatalogRepository
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
+def _unit_interval(value: str) -> float:
+    parsed = float(value)
+    if not 0 <= parsed <= 1:
+        raise argparse.ArgumentTypeError("must be between 0 and 1")
+    return parsed
+
+
+def _category_keyword(value: str) -> str:
+    parsed = value.strip()
+    if not parsed:
+        raise argparse.ArgumentTypeError("must not be blank")
+    return parsed
+
+
+def _validate_catalog_paths(
+    paths: dict[str, Path | None],
+    *,
+    database: Path | None = None,
+) -> None:
+    candidates = {name: path for name, path in paths.items() if path is not None}
+    if database is not None:
+        candidates.update(
+            {
+                "database": database,
+                "database manifest": Path(f"{database.resolve()}.manifest.json"),
+                "database checksum": Path(f"{database.resolve()}.sha256"),
+            }
+        )
+
+    by_path: dict[Path, list[str]] = {}
+    for name, path in candidates.items():
+        by_path.setdefault(path.resolve(), []).append(name)
+    conflicts = [names for names in by_path.values() if len(names) > 1]
+    if conflicts:
+        labels = "; ".join(" = ".join(names) for names in conflicts)
+        raise SystemExit(f"Catalog paths must be distinct: {labels}")
+
+
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destination:
+            json.dump(payload, destination, indent=2, sort_keys=True)
+            destination.write("\n")
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def _write_product(product: Product, output: Path | None) -> None:
@@ -141,10 +211,19 @@ def _iherb_discover(args: argparse.Namespace) -> None:
 
 
 def _import_iherb_feed(args: argparse.Namespace) -> None:
+    _validate_catalog_paths(
+        {
+            "input": args.input,
+            "output": args.output,
+            "report": args.report,
+        },
+        database=args.database,
+    )
+    categories = tuple(args.category or ["supplement"])
     policy = AffiliateFeedPolicy(
         locale="en-US",
         currency="USD",
-        category_keywords=tuple(args.category or ["supplement"]),
+        category_keywords=categories,
     )
     stats = AffiliateFeedStats()
     products = IHerbAffiliateFeedReader(policy).iter_products(
@@ -164,8 +243,30 @@ def _import_iherb_feed(args: argparse.Namespace) -> None:
                 destination.write(product.model_dump_json() + "\n")
             destination.flush()
             os.fsync(destination.fileno())
-        if stats.imported == 0:
-            raise ValueError("Affiliate feed produced no English USD supplement products")
+        failures = affiliate_feed_quality_failures(
+            stats,
+            min_products=args.min_products,
+            min_gtin_coverage=args.min_gtin_coverage,
+        )
+        if args.report:
+            _write_json_atomic(
+                args.report,
+                {
+                    "source": "iHerb affiliate feed",
+                    "locale": policy.locale,
+                    "currency": policy.currency,
+                    "category_keywords": list(categories),
+                    "stats": stats.as_dict(),
+                    "quality": {
+                        "passed": not failures,
+                        "min_products": args.min_products,
+                        "min_gtin_coverage": args.min_gtin_coverage,
+                        "failures": failures,
+                    },
+                },
+            )
+        if failures:
+            raise ValueError("Affiliate feed quality check failed: " + "; ".join(failures))
         os.replace(temporary, args.output)
     except Exception as error:
         temporary.unlink(missing_ok=True)
@@ -176,7 +277,7 @@ def _import_iherb_feed(args: argparse.Namespace) -> None:
         f"non_supplement={stats.non_supplement}; non_usd={stats.non_usd}; "
         f"invalid={stats.invalid}; duplicates={stats.duplicates}; "
         f"missing_gtin={stats.missing_gtin}; invalid_gtin={stats.invalid_gtin}; "
-        f"output={args.output}"
+        f"gtin_coverage={stats.gtin_coverage:.2%}; output={args.output}"
     )
     if args.database:
         SQLiteCatalogBuilder().build(
@@ -187,6 +288,7 @@ def _import_iherb_feed(args: argparse.Namespace) -> None:
                 "product_source": "iHerb affiliate feed",
                 "locale": "en-US",
                 "currency": "USD",
+                "gtin_coverage": f"{stats.gtin_coverage:.6f}",
                 "label_status": "affiliate metadata; run DSLD enrichment for facts",
             },
         )
@@ -271,6 +373,16 @@ def _dsld_sync(args: argparse.Namespace) -> None:
 
 
 def _enrich_dsld(args: argparse.Namespace) -> None:
+    _validate_catalog_paths(
+        {
+            "iHerb input": args.iherb,
+            "DSLD input": args.dsld,
+            "DSLD sync metadata": Path(f"{args.dsld.resolve()}.sync.json"),
+            "output": args.output,
+            "report": args.report,
+        },
+        database=args.database,
+    )
     stats = EnrichmentStats()
     enriched = enrich_iherb_with_dsld(
         iter_json_catalog(args.iherb),
@@ -293,15 +405,38 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
                 count += 1
             destination.flush()
             os.fsync(destination.fileno())
+        failures = enrichment_quality_failures(
+            stats,
+            output_products=count,
+            min_label_coverage=args.min_label_coverage,
+        )
+        if args.report:
+            _write_json_atomic(
+                args.report,
+                {
+                    "source": "NIH DSLD v9 by UPC",
+                    "require_label": args.require_label,
+                    "output_products": count,
+                    "stats": stats.as_dict(),
+                    "quality": {
+                        "passed": not failures,
+                        "min_label_coverage": args.min_label_coverage,
+                        "failures": failures,
+                    },
+                },
+            )
+        if failures:
+            raise ValueError("Enrichment quality check failed: " + "; ".join(failures))
         os.replace(temporary, args.output)
-    except Exception:
+    except Exception as error:
         temporary.unlink(missing_ok=True)
-        raise
+        raise SystemExit(str(error)) from None
 
     print(
         f"wrote {count} iHerb products to {args.output}; "
         f"DSLD matches={stats.matched}; "
-        f"missing labels skipped={stats.skipped_without_label}"
+        f"missing labels skipped={stats.skipped_without_label}; "
+        f"label_coverage={stats.label_coverage:.2%}"
     )
     if args.database:
         SQLiteCatalogBuilder().build(
@@ -311,6 +446,7 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
                 "built_at": datetime.now(UTC).isoformat(),
                 "product_source": "iHerb",
                 "label_enrichment": "NIH DSLD v9 by UPC",
+                "label_coverage": f"{stats.label_coverage:.6f}",
             },
         )
         manifest_path, checksum_path = write_catalog_artifacts(args.database)
@@ -388,9 +524,18 @@ def build_parser() -> argparse.ArgumentParser:
     import_iherb_feed.add_argument("--input", type=Path, required=True)
     import_iherb_feed.add_argument("--output", type=Path, required=True)
     import_iherb_feed.add_argument("--database", type=Path)
+    import_iherb_feed.add_argument("--report", type=Path)
+    import_iherb_feed.add_argument("--min-products", type=_positive_int, default=1)
+    import_iherb_feed.add_argument(
+        "--min-gtin-coverage",
+        type=_unit_interval,
+        default=0.0,
+        help="Fail atomically when valid GTIN coverage is below this 0..1 ratio",
+    )
     import_iherb_feed.add_argument(
         "--category",
         action="append",
+        type=_category_keyword,
         help="Required category substring; repeat to include more English categories",
     )
     import_iherb_feed.set_defaults(handler=_import_iherb_feed)
@@ -433,6 +578,13 @@ def build_parser() -> argparse.ArgumentParser:
     enrich_dsld.add_argument("--dsld", type=Path, required=True)
     enrich_dsld.add_argument("--output", type=Path, required=True)
     enrich_dsld.add_argument("--database", type=Path)
+    enrich_dsld.add_argument("--report", type=Path)
+    enrich_dsld.add_argument(
+        "--min-label-coverage",
+        type=_unit_interval,
+        default=0.0,
+        help="Fail atomically when ingredient-label coverage is below this 0..1 ratio",
+    )
     enrich_dsld.add_argument(
         "--require-label",
         action="store_true",
