@@ -4,6 +4,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
@@ -455,7 +456,7 @@ def download_catalog(
     try:
         request = urllib.request.Request(
             url,
-            headers={"User-Agent": "Suparch/0.1 catalog-downloader"},
+            headers={"User-Agent": "Suparch/0.2 catalog-downloader"},
         )
         with (
             urllib.request.urlopen(request, timeout=60) as response,  # noqa: S310
@@ -477,6 +478,54 @@ def download_catalog(
         temporary.unlink(missing_ok=True)
         raise
     return destination
+
+
+def fetch_catalog_manifest_sha256(url: str) -> str:
+    payload = _fetch_small_json(url, "catalog-manifest-client")
+    checksum = payload.get("sha256")
+    return _validate_sha256(checksum, "Catalog manifest")
+
+
+def fetch_catalog_pointer(url: str) -> tuple[str, str, int]:
+    payload = _fetch_small_json(url, "catalog-pointer-client")
+    catalog_url = payload.get("catalog_url")
+    if (
+        not isinstance(catalog_url, str)
+        or urllib.parse.urlparse(catalog_url).scheme != "https"
+    ):
+        raise ValueError("Catalog pointer has no valid HTTPS catalog URL")
+    checksum = _validate_sha256(payload.get("sha256"), "Catalog pointer")
+    schema_version = payload.get("schema_version")
+    if not isinstance(schema_version, int) or schema_version < 1:
+        raise ValueError("Catalog pointer has no valid schema version")
+    return catalog_url, checksum, schema_version
+
+
+def _fetch_small_json(url: str, client_name: str) -> dict[str, object]:
+    if urllib.parse.urlparse(url).scheme != "https":
+        raise ValueError("Catalog metadata URL must use HTTPS")
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"Suparch/0.2 {client_name}"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+        payload_bytes = response.read(1_000_001)
+    if len(payload_bytes) > 1_000_000:
+        raise ValueError("Catalog metadata exceeds 1 MB")
+    payload = json.loads(payload_bytes)
+    if not isinstance(payload, dict):
+        raise ValueError("Catalog metadata must be a JSON object")
+    return payload
+
+
+def _validate_sha256(value: object, source: str) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in value)
+    ):
+        raise ValueError(f"{source} has no valid SHA-256")
+    return value.casefold()
 
 
 def validate_catalog(path: Path) -> None:

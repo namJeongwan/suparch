@@ -148,6 +148,11 @@ options and the official affiliate path.
 
 ## Hub deployment
 
+The published container defaults to an official catalog pointer. The pointer
+selects one immutable GitHub Release asset and its SHA-256, so a Hub can start
+Suparch without provisioning a database. Override the catalog variables when
+operating a private or curated snapshot.
+
 Run the stateless Streamable HTTP transport:
 
 ```bash
@@ -177,8 +182,13 @@ Build the container:
 docker build -t suparch .
 docker run --rm -p 8000:8000 \
   -e SUPARCH_CATALOG_URL=https://cdn.example.com/catalog.sqlite \
+  -e SUPARCH_CATALOG_SHA256=<sha256> \
   suparch
 ```
+
+If `SUPARCH_CATALOG_SHA256` is omitted for a custom URL, Suparch derives the
+manifest URL by appending `.manifest.json`. Set
+`SUPARCH_CATALOG_MANIFEST_URL` only when the manifest lives elsewhere.
 
 ## MCP Registry
 
@@ -258,10 +268,32 @@ publication design.
 | Variable | Purpose |
 | --- | --- |
 | `SUPARCH_DB_PATH` | Read-only SQLite file mounted into the runtime |
+| `SUPARCH_CATALOG_POINTER_URL` | Official pointer containing an immutable catalog URL and SHA-256 |
 | `SUPARCH_CATALOG_URL` | HTTPS SQLite artifact downloaded on startup |
+| `SUPARCH_CATALOG_MANIFEST_URL` | Optional custom manifest URL; defaults to `<catalog URL>.manifest.json` |
 | `SUPARCH_CATALOG_SHA256` | Optional artifact checksum |
 | `SUPARCH_CATALOG_CACHE_PATH` | Download destination, default `/tmp/suparch/catalog.sqlite` |
 | `SUPARCH_TRANSPORT` | `stdio`, `sse`, or `streamable-http` |
 | `SUPARCH_HOST` | HTTP bind host |
 | `SUPARCH_PORT` / `PORT` | HTTP port |
 | `SUPARCH_MCP_PATH` | Streamable HTTP endpoint, default `/mcp` |
+
+## Publish the official catalog
+
+Maintainers can run the `Publish DSLD catalog` GitHub Actions workflow. It
+requires an explicit `PUBLISH` confirmation, builds a fresh snapshot with
+`--no-resume`, verifies SQLite integrity, stores a 30-day workflow artifact,
+and publishes three assets under a new immutable prerelease:
+
+```text
+suparch-catalog.sqlite
+suparch-catalog.sqlite.sha256
+suparch-catalog.sqlite.manifest.json
+```
+
+After downloading and verifying the public release asset, the workflow advances
+`v3/catalog-pointer.json` through one commit on the dedicated `catalog` branch.
+Pointers are schema-versioned so future catalog formats cannot break older
+images.
+The workflow is intentionally manual because a complete DSLD refresh can
+request more than 200,000 public label records.
