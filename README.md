@@ -11,7 +11,7 @@ calculations; it does not diagnose conditions or recommend supplements.
 ## Current tools
 
 - `search_products`: search by product text, included ingredients, excluded
-  ingredients, ingredient forms, brand, and price.
+  ingredients, ingredient forms, product type, target group, brand, and price.
 - `get_product`: return the complete normalized label record for a product.
 - `compare_products`: compare per-serving ingredients and forms.
 - `calculate_stack`: add known label amounts for user-supplied daily servings.
@@ -20,6 +20,31 @@ calculations; it does not diagnose conditions or recommend supplements.
 Production deployments use an immutable SQLite snapshot opened in read-only
 mode. The crawler and catalog builder run separately from the public MCP
 process, which makes the server suitable for ephemeral MCP Hub containers.
+
+## Sync real labels from NIH DSLD
+
+The primary open catalog source is the NIH Office of Dietary Supplements'
+Dietary Supplement Label Database (DSLD) v9 API. DSLD provides real label
+records under CC0, including UPCs, market status, serving information,
+ingredient forms, amounts, and target groups.
+
+Sync a resumable JSONL source and publish a SQLite snapshot:
+
+```bash
+uv run suparch-catalog dsld-sync \
+  --query magnesium \
+  --status on-market \
+  --limit 1000 \
+  --output build/dsld-products.jsonl \
+  --database build/catalog.sqlite
+```
+
+Use `--limit 0` for the complete matching result set. The sync uses bounded
+concurrency and retries, flushes each page to disk, resumes by DSLD label ID,
+and repairs a truncated final JSONL record after an interrupted write. A sync
+sidecar pins the query, market status, limit, API, and parser version so
+incompatible runs cannot be mixed. Resume is only for interrupted runs; use
+`--no-resume` to refresh a completed snapshot and reconcile changed labels.
 
 ## Quick start
 
@@ -200,11 +225,24 @@ should only run after that exact image tag is publicly available.
 All label strings are preserved alongside normalized values. Normalization must
 never destroy the source label text.
 
+DSLD quantity and daily-value operators are preserved. Non-equality amounts
+such as `< 1 g` remain visible in label details but are excluded from stack
+arithmetic because they are not exact values. When a label provides different
+daily values for adults, children, pregnancy, or lactation, every target-group
+entry is returned instead of presenting the first percentage as universal.
+
+Search results return compact summaries with at most 20 canonical ingredient
+names plus the total ingredient count. Use `get_product` for the complete label.
+
 ## Architecture
 
 ```text
-saved HTML / allowed fetch -> parser -> normalizer -> SQLite snapshot
-                                                       |
+NIH DSLD API ---------------------------> normalized Product JSONL
+authorized saved HTML -> parser --------> normalized Product JSONL
+                                                   |
+                                                   v
+                                         immutable SQLite snapshot
+                                                   |
 MCP client -> stateless Suparch server -> read-only repository
 ```
 

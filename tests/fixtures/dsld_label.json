@@ -1,0 +1,84 @@
+{
+  "id": 19279,
+  "fullName": "Magnesium",
+  "brandName": "Nutra Sport",
+  "upcSku": "0 12345 67890 5",
+  "servingsPerContainer": "30",
+  "physicalState": {
+    "langualCodeDescription": "Capsule"
+  },
+  "productType": {
+    "langualCodeDescription": "Single Vitamin and Mineral"
+  },
+  "servingSizes": [
+    {
+      "order": 1,
+      "minQuantity": 3,
+      "maxQuantity": 3,
+      "unit": "Capsule(s)"
+    }
+  ],
+  "targetGroups": [
+    "Vegan",
+    "Adult (18 - 50 Years)"
+  ],
+  "ingredientRows": [
+    {
+      "order": 1,
+      "name": "Magnesium",
+      "ingredientGroup": "Magnesium",
+      "notes": "Magnesium from amino acid chelate, citrate, and malate",
+      "quantity": [
+        {
+          "servingSizeOrder": 1,
+          "operator": "=",
+          "quantity": 400,
+          "unit": "mg",
+          "dailyValueTargetGroup": [
+            {
+              "operator": "=",
+              "percent": 100
+            }
+          ]
+        }
+      ],
+      "forms": [
+        {
+          "name": "Magnesium Citrate"
+        },
+        {
+          "name": "Magnesium Malate"
+        }
+      ],
+      "nestedRows": [
+        {
+          "order": 1,
+          "name": "Malic Acid",
+          "ingredientGroup": "Malic Acid",
+          "quantity": [
+            {
+              "servingSizeOrder": 1,
+              "operator": "=",
+              "quantity": 222,
+              "unit": "mg",
+              "dailyValueTargetGroup": []
+            }
+          ],
+          "forms": [],
+          "nestedRows": []
+        }
+      ]
+    }
+  ],
+  "otheringredients": {
+    "ingredients": [
+      {
+        "name": "Vegetarian Capsule"
+      },
+      {
+        "name": "Silicon Dioxide"
+      }
+    ]
+  },
+  "offMarket": 0
+}

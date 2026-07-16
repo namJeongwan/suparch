@@ -5,14 +5,16 @@ import shutil
 import sqlite3
 import tempfile
 import urllib.request
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import TypeAdapter
 
 from suparch.models import Product
+from suparch.normalization import normalize_text
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 REQUIRED_COLUMNS = {
     "metadata": {"key", "value"},
     "products": {
@@ -21,18 +23,59 @@ REQUIRED_COLUMNS = {
         "source_product_id",
         "name",
         "brand",
+        "upc",
+        "on_market",
+        "supplement_form",
+        "supplement_form_normalized",
+        "product_type",
+        "product_type_normalized",
+        "target_groups_json",
+        "serving_size",
+        "servings_per_container",
+        "price_amount",
+        "price_currency",
         "product_url",
         "crawled_at",
+        "locale",
+        "parser_version",
+        "parser_confidence",
     },
     "product_ingredients": {
         "product_id",
         "position",
         "canonical_name",
         "label_name",
+        "taxonomy_name",
+        "form",
+        "amount",
+        "unit",
+        "amount_operator",
+        "normalized_amount",
+        "normalized_unit",
+        "daily_value_percent",
+        "daily_value_operator",
+        "daily_values_json",
+        "raw_text",
         "parent_ingredient",
+        "confidence",
+    },
+    "product_target_groups": {
+        "product_id",
+        "position",
+        "name",
+        "normalized_name",
     },
     "other_ingredients": {"product_id", "position", "name"},
-    "product_search": {"product_id", "name", "brand", "ingredients", "forms"},
+    "product_search": {
+        "product_id",
+        "name",
+        "brand",
+        "upc",
+        "product_type",
+        "target_groups",
+        "ingredients",
+        "forms",
+    },
 }
 
 SCHEMA = """
@@ -51,6 +94,13 @@ CREATE TABLE products (
     source_product_id TEXT NOT NULL,
     name TEXT NOT NULL,
     brand TEXT NOT NULL,
+    upc TEXT,
+    on_market INTEGER,
+    supplement_form TEXT,
+    supplement_form_normalized TEXT,
+    product_type TEXT,
+    product_type_normalized TEXT,
+    target_groups_json TEXT NOT NULL,
     serving_size TEXT,
     servings_per_container TEXT,
     price_amount TEXT,
@@ -67,12 +117,16 @@ CREATE TABLE product_ingredients (
     position INTEGER NOT NULL,
     canonical_name TEXT NOT NULL,
     label_name TEXT NOT NULL,
+    taxonomy_name TEXT,
     form TEXT,
     amount TEXT,
     unit TEXT,
+    amount_operator TEXT,
     normalized_amount TEXT,
     normalized_unit TEXT,
     daily_value_percent TEXT,
+    daily_value_operator TEXT,
+    daily_values_json TEXT NOT NULL,
     raw_text TEXT,
     parent_ingredient TEXT,
     confidence TEXT NOT NULL,
@@ -85,6 +139,23 @@ ON product_ingredients(canonical_name, product_id);
 CREATE INDEX idx_product_ingredients_form
 ON product_ingredients(form, product_id);
 
+CREATE INDEX idx_products_supplement_form
+ON products(supplement_form_normalized, id);
+
+CREATE INDEX idx_products_product_type
+ON products(product_type_normalized, id);
+
+CREATE TABLE product_target_groups (
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    PRIMARY KEY (product_id, position)
+);
+
+CREATE INDEX idx_product_target_groups_name
+ON product_target_groups(normalized_name, product_id);
+
 CREATE TABLE other_ingredients (
     product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     position INTEGER NOT NULL,
@@ -96,6 +167,9 @@ CREATE VIRTUAL TABLE product_search USING fts5(
     product_id UNINDEXED,
     name,
     brand,
+    upc,
+    product_type,
+    target_groups,
     ingredients,
     forms,
     tokenize = 'unicode61 remove_diacritics 2'
@@ -103,19 +177,23 @@ CREATE VIRTUAL TABLE product_search USING fts5(
 """
 
 
-def load_json_catalog(path: Path) -> list[Product]:
+def iter_json_catalog(path: Path) -> Iterator[Product]:
     if path.suffix.casefold() == ".jsonl":
-        payload = [
-            json.loads(line)
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
-        ]
-        return TypeAdapter(list[Product]).validate_python(payload)
+        adapter = TypeAdapter(Product)
+        with path.open(encoding="utf-8") as source:
+            for line in source:
+                if line.strip():
+                    yield adapter.validate_python(json.loads(line))
+        return
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(payload, dict):
         payload = [payload]
-    return TypeAdapter(list[Product]).validate_python(payload)
+    yield from TypeAdapter(list[Product]).validate_python(payload)
+
+
+def load_json_catalog(path: Path) -> list[Product]:
+    return list(iter_json_catalog(path))
 
 
 def load_catalog_inputs(paths: list[Path]) -> list[Product]:
@@ -126,12 +204,17 @@ def load_catalog_inputs(paths: list[Path]) -> list[Product]:
     return list(products_by_id.values())
 
 
+def iter_catalog_inputs(paths: list[Path]) -> Iterator[Product]:
+    for path in paths:
+        yield from iter_json_catalog(path)
+
+
 class SQLiteCatalogBuilder:
     """Build immutable catalog snapshots and publish them with an atomic rename."""
 
     def build(
         self,
-        products: list[Product],
+        products: Iterable[Product],
         output: Path,
         *,
         metadata: dict[str, str] | None = None,
@@ -157,7 +240,7 @@ class SQLiteCatalogBuilder:
 
     @staticmethod
     def _write(
-        products: list[Product],
+        products: Iterable[Product],
         output: Path,
         metadata: dict[str, str],
     ) -> None:
@@ -165,24 +248,41 @@ class SQLiteCatalogBuilder:
             connection.executescript(SCHEMA)
             base_metadata = {
                 "schema_version": str(SCHEMA_VERSION),
-                "product_count": str(len(products)),
             }
             connection.executemany(
                 "INSERT INTO metadata(key, value) VALUES (?, ?)",
                 [*base_metadata.items(), *metadata.items()],
             )
 
+            product_count = 0
+            seen_product_ids: set[str] = set()
             for product in products:
+                if product.id in seen_product_ids:
+                    connection.execute(
+                        "DELETE FROM product_search WHERE product_id = ?",
+                        (product.id,),
+                    )
+                    connection.execute(
+                        "DELETE FROM products WHERE id = ?",
+                        (product.id,),
+                    )
+                else:
+                    product_count += 1
+                    seen_product_ids.add(product.id)
                 price_amount = str(product.price.amount) if product.price else None
                 price_currency = product.price.currency if product.price else None
                 connection.execute(
                     """
                     INSERT INTO products(
-                        id, source, source_product_id, name, brand,
+                        id, source, source_product_id, name, brand, upc,
+                        on_market, supplement_form, supplement_form_normalized,
+                        product_type, product_type_normalized, target_groups_json,
                         serving_size, servings_per_container,
                         price_amount, price_currency, product_url,
                         crawled_at, locale, parser_version, parser_confidence
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     """,
                     (
                         product.id,
@@ -190,6 +290,17 @@ class SQLiteCatalogBuilder:
                         product.source_product_id,
                         product.name,
                         product.brand,
+                        product.upc,
+                        (
+                            int(product.on_market)
+                            if product.on_market is not None
+                            else None
+                        ),
+                        product.supplement_form,
+                        normalize_text(product.supplement_form or ""),
+                        product.product_type,
+                        normalize_text(product.product_type or ""),
+                        json.dumps(product.target_groups),
                         product.serving_size,
                         (
                             str(product.servings_per_container)
@@ -208,10 +319,14 @@ class SQLiteCatalogBuilder:
                 connection.executemany(
                     """
                     INSERT INTO product_ingredients(
-                        product_id, position, canonical_name, label_name, form,
-                        amount, unit, normalized_amount, normalized_unit,
-                        daily_value_percent, raw_text, parent_ingredient, confidence
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        product_id, position, canonical_name, label_name,
+                        taxonomy_name, form, amount, unit, amount_operator,
+                        normalized_amount, normalized_unit, daily_value_percent,
+                        daily_value_operator, daily_values_json, raw_text,
+                        parent_ingredient, confidence
+                    ) VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                     """,
                     [
                         (
@@ -219,6 +334,7 @@ class SQLiteCatalogBuilder:
                             position,
                             ingredient.canonical_name,
                             ingredient.label_name,
+                            ingredient.taxonomy_name,
                             ingredient.form,
                             (
                                 str(ingredient.amount)
@@ -226,6 +342,7 @@ class SQLiteCatalogBuilder:
                                 else None
                             ),
                             ingredient.unit,
+                            ingredient.amount_operator,
                             (
                                 str(ingredient.normalized_amount)
                                 if ingredient.normalized_amount is not None
@@ -237,6 +354,13 @@ class SQLiteCatalogBuilder:
                                 if ingredient.daily_value_percent is not None
                                 else None
                             ),
+                            ingredient.daily_value_operator,
+                            json.dumps(
+                                [
+                                    daily_value.model_dump(mode="json")
+                                    for daily_value in ingredient.daily_values
+                                ]
+                            ),
                             ingredient.raw_text,
                             ingredient.parent_ingredient,
                             str(ingredient.confidence),
@@ -244,6 +368,17 @@ class SQLiteCatalogBuilder:
                         for position, ingredient in enumerate(
                             product.active_ingredients
                         )
+                    ],
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO product_target_groups(
+                        product_id, position, name, normalized_name
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    [
+                        (product.id, position, name, normalize_text(name))
+                        for position, name in enumerate(product.target_groups)
                     ],
                 )
                 connection.executemany(
@@ -259,15 +394,28 @@ class SQLiteCatalogBuilder:
                 connection.execute(
                     """
                     INSERT INTO product_search(
-                        product_id, name, brand, ingredients, forms
-                    ) VALUES (?, ?, ?, ?, ?)
+                        product_id, name, brand, upc, product_type,
+                        target_groups, ingredients, forms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         product.id,
                         product.name,
                         product.brand,
+                        product.upc or "",
+                        product.product_type or "",
+                        " ".join(product.target_groups),
                         " ".join(
-                            f"{ingredient.canonical_name} {ingredient.label_name}"
+                            " ".join(
+                                filter(
+                                    None,
+                                    [
+                                        ingredient.canonical_name,
+                                        ingredient.label_name,
+                                        ingredient.taxonomy_name,
+                                    ],
+                                )
+                            )
                             for ingredient in product.active_ingredients
                         ),
                         " ".join(
@@ -277,6 +425,10 @@ class SQLiteCatalogBuilder:
                     ),
                 )
 
+            connection.execute(
+                "INSERT INTO metadata(key, value) VALUES (?, ?)",
+                ("product_count", str(product_count)),
+            )
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
             result = connection.execute("PRAGMA integrity_check").fetchone()[0]
