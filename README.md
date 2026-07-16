@@ -31,8 +31,16 @@ with another currency are excluded.
 ```bash
 uv run suparch-catalog import-iherb-feed \
   --input build/iherb-us-feed.csv.gz \
+  --report build/iherb-import-report.json \
+  --min-products 1 \
+  --min-gtin-coverage 0 \
   --output build/iherb-products.jsonl
 ```
+
+`--min-products` and `--min-gtin-coverage` are atomic publication gates. Set
+them after inspecting the first approved feed rather than guessing production
+thresholds. A failed gate preserves the previous product output and writes a
+non-product report containing counts and coverage ratios.
 
 The importer recognizes common Impact and retail-feed column names for product
 name, brand/manufacturer, URL, current price, currency, GTIN/UPC, and category.
@@ -78,9 +86,15 @@ uv run suparch-catalog enrich-dsld \
   --iherb build/iherb-products.jsonl \
   --dsld build/dsld-products.jsonl \
   --output build/enriched-iherb-products.jsonl \
+  --report build/dsld-enrichment-report.json \
+  --min-label-coverage 0 \
   --require-label \
   --database build/catalog.sqlite
 ```
+
+Enrichment also fails atomically when it produces no products or misses the
+operator-selected `--min-label-coverage`. The report separates UPC matches from
+products that actually contain ingredient rows.
 
 Use `--limit 0` for the complete matching result set. The sync uses bounded
 concurrency and retries, flushes each page to disk, resumes by DSLD label ID,
@@ -355,3 +369,5 @@ approved iHerb affiliate feed/API or operator-supplied pages
 iHerb lists Partnerize, Impact, CJ, and Awin as official affiliate platforms
 and explicitly accepts shopping-comparison partners. An approved feed or
 written data-access permission is therefore the next external dependency.
+See [docs/affiliate-onboarding.md](docs/affiliate-onboarding.md) for the exact
+application text, requested feed fields, licensing questions, and safe handoff.

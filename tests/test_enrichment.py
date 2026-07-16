@@ -3,7 +3,11 @@ from pathlib import Path
 
 from suparch.catalog import load_json_catalog
 from suparch.dsld import DsldProductMapper
-from suparch.enrichment import EnrichmentStats, enrich_iherb_with_dsld
+from suparch.enrichment import (
+    EnrichmentStats,
+    enrich_iherb_with_dsld,
+    enrichment_quality_failures,
+)
 from suparch.models import Product
 
 SAMPLE_CATALOG = (
@@ -40,7 +44,10 @@ def test_enriches_by_upc_without_losing_iherb_identity() -> None:
     assert enriched.price == iherb.price
     assert enriched.active_ingredients[0].canonical_name == "magnesium"
     assert "dsld:19279" in (enriched.parser_version or "")
+    assert stats.total == 1
     assert stats.matched == 1
+    assert stats.labeled == 1
+    assert stats.label_coverage == 1
 
 
 def test_keeps_first_same_status_dsld_match_for_duplicate_upc() -> None:
@@ -121,4 +128,18 @@ def test_can_exclude_feed_product_without_matching_label() -> None:
     )
 
     assert enriched == []
+    assert stats.total == 1
+    assert stats.labeled == 0
     assert stats.skipped_without_label == 1
+
+
+def test_reports_enrichment_quality_failures() -> None:
+    stats = EnrichmentStats(total=4, matched=1, labeled=1)
+
+    failures = enrichment_quality_failures(
+        stats,
+        output_products=1,
+        min_label_coverage=0.5,
+    )
+
+    assert failures == ["label coverage 25.00% is below minimum 50.00%"]
