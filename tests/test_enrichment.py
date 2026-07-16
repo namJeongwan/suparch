@@ -95,3 +95,30 @@ def test_does_not_mix_iherb_and_dsld_label_bundles() -> None:
     assert enriched.target_groups == iherb.target_groups
     assert enriched.active_ingredients == iherb.active_ingredients
     assert enriched.other_ingredients == iherb.other_ingredients
+
+
+def test_can_exclude_feed_product_without_matching_label() -> None:
+    product = Product.model_validate(
+        {
+            **load_json_catalog(SAMPLE_CATALOG)[0].model_dump(mode="json"),
+            "id": "iherb:no-label",
+            "source": "iherb",
+            "source_product_id": "no-label",
+            "upc": None,
+            "active_ingredients": [],
+            "product_url": "https://www.iherb.com/pr/no-label/99999",
+        }
+    )
+    stats = EnrichmentStats()
+
+    enriched = list(
+        enrich_iherb_with_dsld(
+            [product],
+            [],
+            stats=stats,
+            require_label=True,
+        )
+    )
+
+    assert enriched == []
+    assert stats.skipped_without_label == 1

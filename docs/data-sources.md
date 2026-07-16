@@ -14,6 +14,14 @@ The `iherb-discover` command can inventory published product sitemap references,
 but the sitemap spans non-supplement departments and does not itself provide
 authorization, prices, or complete Supplement Facts.
 
+The English MVP accepts approved affiliate catalogs through
+`import-iherb-feed`. Input must be UTF-8 CSV or CSV.GZ. The importer accepts
+common retail-feed aliases for name, manufacturer/brand, URL, current price,
+currency, GTIN/UPC, and category while enforcing `en-US`, USD, valid iHerb
+product URLs, and English supplement-category keywords. Feed metadata and
+Supplement Facts remain separate: an offer-only product must be enriched by a
+matching label before ingredient tools can return complete results.
+
 ## NIH DSLD enrichment
 
 The NIH Office of Dietary Supplements' DSLD v9 API can optionally enrich iHerb
@@ -38,7 +46,7 @@ reconciled instead of silently mixed with older records.
 Suparch does not bypass `robots.txt`, authentication, rate limits, browser
 challenges, or other access controls.
 
-As checked during development on 2026-07-16, the product path was allowed by
+As checked during development on 2026-07-17, the product path was allowed by
 the published robots rules, but the product request itself returned HTTP 403.
 The live-fetch CLI therefore fails closed with an authorized-input message.
 
@@ -64,6 +72,7 @@ Suparch's catalog pipeline accepts:
 5. A saved-HTML manifest for one atomic batch update.
 6. NIH DSLD v9 API synchronization as optional enrichment input.
 7. iHerb sitemap product references for authorized downstream ingestion.
+8. Approved English/USD iHerb affiliate catalogs in CSV or CSV.GZ format.
 
 This keeps the parser and MCP server useful while data acquisition remains a
 separate, explicitly authorized concern.

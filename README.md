@@ -21,6 +21,39 @@ Production deployments use an immutable SQLite snapshot opened in read-only
 mode. The crawler and catalog builder run separately from the public MCP
 process, which makes the server suitable for ephemeral MCP Hub containers.
 
+## English affiliate-feed MVP
+
+The MVP accepts an approved iHerb affiliate catalog as UTF-8 CSV or CSV.GZ.
+It deliberately keeps one market contract: English (`en-US`), USD prices, and
+HTTPS `iherb.com` product URLs. Rows outside an English supplement category or
+with another currency are excluded.
+
+```bash
+uv run suparch-catalog import-iherb-feed \
+  --input build/iherb-us-feed.csv.gz \
+  --output build/iherb-products.jsonl
+```
+
+The importer recognizes common Impact and retail-feed column names for product
+name, brand/manufacturer, URL, current price, currency, GTIN/UPC, and category.
+It derives the canonical iHerb product ID from the `/pr/` URL, validates GTIN
+check digits, removes duplicate products, and reports every skipped row class.
+Use repeated `--category` options when an approved feed uses additional English
+category names:
+
+```bash
+uv run suparch-catalog import-iherb-feed \
+  --input build/iherb-us-feed.csv.gz \
+  --category supplement \
+  --category "sports nutrition" \
+  --output build/iherb-products.jsonl
+```
+
+Affiliate catalogs usually provide offers rather than complete Supplement
+Facts. Run the DSLD enrichment step below before relying on ingredient search,
+comparison, or stack calculation. A direct `--database` build is useful for
+offer/name search but can contain products without label rows.
+
 ## Optional NIH DSLD label enrichment
 
 Suparch's product catalog is intended to contain iHerb products. NIH's Dietary
@@ -45,6 +78,7 @@ uv run suparch-catalog enrich-dsld \
   --iherb build/iherb-products.jsonl \
   --dsld build/dsld-products.jsonl \
   --output build/enriched-iherb-products.jsonl \
+  --require-label \
   --database build/catalog.sqlite
 ```
 
