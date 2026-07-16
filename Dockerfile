@@ -14,7 +14,8 @@ RUN uv sync --frozen --no-dev
 ENV PATH="/app/.venv/bin:${PATH}" \
     SUPARCH_TRANSPORT="streamable-http" \
     SUPARCH_HOST="0.0.0.0" \
-    SUPARCH_PORT="8000"
+    SUPARCH_PORT="8000" \
+    SUPARCH_CATALOG_POINTER_URL="https://raw.githubusercontent.com/namJeongwan/suparch/catalog/v3/catalog-pointer.json"
 
 EXPOSE 8000
 

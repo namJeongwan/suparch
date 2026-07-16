@@ -9,7 +9,16 @@ def test_registry_metadata_matches_project() -> None:
     readme = (root / "README.md").read_text(encoding="utf-8")
 
     assert metadata["name"] == "io.github.namjeongwan/suparch"
-    assert metadata["version"] == "0.2.0"
-    assert metadata["packages"][0]["identifier"].endswith(":0.2.0")
+    assert metadata["version"] == "0.2.1"
+    assert metadata["packages"][0]["identifier"].endswith(":0.2.1")
+    variables = {
+        variable["name"]: variable
+        for variable in metadata["packages"][0]["environmentVariables"]
+    }
+    assert variables["SUPARCH_CATALOG_POINTER_URL"]["default"].endswith(
+        "/catalog/v3/catalog-pointer.json"
+    )
+    assert variables["SUPARCH_CATALOG_URL"]["isRequired"] is False
+    assert variables["SUPARCH_CATALOG_MANIFEST_URL"]["isRequired"] is False
     assert 'io.modelcontextprotocol.server.name="io.github.namjeongwan/suparch"' in dockerfile
     assert "mcp-name: io.github.namjeongwan/suparch" in readme

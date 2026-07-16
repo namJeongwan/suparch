@@ -65,4 +65,6 @@ catalog.sqlite.manifest.json
 The manifest includes schema version, product count, byte size, generation
 time, and SHA-256. Publish all three files together using versioned object
 names. The MCP runtime should receive the expected checksum through
-`SUPARCH_CATALOG_SHA256`.
+`SUPARCH_CATALOG_SHA256` or obtain it from
+`SUPARCH_CATALOG_MANIFEST_URL`. The official distribution instead uses
+`SUPARCH_CATALOG_POINTER_URL` to bind an immutable release URL to its checksum.

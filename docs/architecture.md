@@ -58,8 +58,18 @@ The MCP container can receive the database through either:
 
 1. `SUPARCH_DB_PATH`: a mounted local path.
 2. `SUPARCH_CATALOG_URL`: an HTTPS artifact downloaded at startup.
+3. `SUPARCH_CATALOG_POINTER_URL`: a pointer to an immutable HTTPS artifact and
+   its SHA-256.
 
 When a checksum is available, pass it through `SUPARCH_CATALOG_SHA256`.
+
+The official container reads a schema-versioned pointer such as
+`v3/catalog-pointer.json` from the dedicated `catalog` branch. Each publication
+creates a new immutable prerelease, verifies the public download, and advances
+only that schema's pointer with one Git commit. On every startup, the runtime
+checks the pointer schema, binds cache metadata to both URL and SHA-256, and
+rehashes the cached file before opening it. Catalog publication remains a
+manual workflow so a full NIH refresh is deliberate and auditable.
 
 ## SQLite schema
 

@@ -1,6 +1,6 @@
 [project]
 name = "suparch"
-version = "0.2.0"
+version = "0.2.1"
 description = "Search supplements by what's inside."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,7 +12,7 @@ dependencies = [
   "beautifulsoup4>=4.13,<5",
   "httpx>=0.28,<1",
   "lxml>=5.4,<7",
-  "mcp[cli]>=1.27,<2",
+  "mcp[cli]>=1.28,<1.29",
   "pydantic>=2.11,<3",
 ]
 

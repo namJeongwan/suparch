@@ -7,12 +7,12 @@
     "url": "https://github.com/namJeongwan/suparch",
     "source": "github"
   },
-  "version": "0.2.0",
+  "version": "0.2.1",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/namjeongwan/suparch:0.2.0",
-      "version": "0.2.0",
+      "identifier": "ghcr.io/namjeongwan/suparch:0.2.1",
+      "version": "0.2.1",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -23,9 +23,22 @@
       ],
       "environmentVariables": [
         {
+          "name": "SUPARCH_CATALOG_POINTER_URL",
+          "description": "HTTPS URL of the official immutable catalog pointer.",
+          "default": "https://raw.githubusercontent.com/namJeongwan/suparch/catalog/v3/catalog-pointer.json",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
           "name": "SUPARCH_CATALOG_URL",
-          "description": "HTTPS URL of a published Suparch SQLite catalog snapshot.",
-          "isRequired": true,
+          "description": "Optional custom HTTPS SQLite catalog URL; overrides the pointer.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "SUPARCH_CATALOG_MANIFEST_URL",
+          "description": "Optional manifest URL for a custom catalog.",
+          "isRequired": false,
           "isSecret": false
         },
         {

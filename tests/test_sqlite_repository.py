@@ -1,12 +1,15 @@
 import json
 import sqlite3
 from decimal import Decimal
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 
 from suparch.catalog import (
     SQLiteCatalogBuilder,
+    fetch_catalog_manifest_sha256,
+    fetch_catalog_pointer,
     load_catalog_inputs,
     load_json_catalog,
     validate_catalog,
@@ -119,6 +122,73 @@ def test_writes_catalog_manifest_and_checksum(database: Path) -> None:
     assert manifest["schema_version"] == 3
     assert manifest["product_count"] == 3
     assert manifest["sha256"] == checksum_path.read_text(encoding="utf-8").split()[0]
+
+
+def test_reads_checksum_from_remote_manifest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checksum = "a" * 64
+
+    class Response(BytesIO):
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+    monkeypatch.setattr(
+        "suparch.catalog.urllib.request.urlopen",
+        lambda request, timeout: Response(
+            json.dumps({"sha256": checksum}).encode()
+        ),
+    )
+
+    assert (
+        fetch_catalog_manifest_sha256(
+            "https://example.com/catalog.sqlite.manifest.json"
+        )
+        == checksum
+    )
+
+
+def test_reads_immutable_catalog_pointer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checksum = "b" * 64
+
+    class Response(BytesIO):
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            self.close()
+
+    monkeypatch.setattr(
+        "suparch.catalog.urllib.request.urlopen",
+        lambda request, timeout: Response(
+            json.dumps(
+                {
+                    "catalog_url": (
+                        "https://github.com/example/releases/download/"
+                        "catalog-1/suparch-catalog.sqlite"
+                    ),
+                    "sha256": checksum,
+                    "schema_version": 3,
+                }
+            ).encode()
+        ),
+    )
+
+    assert fetch_catalog_pointer(
+        "https://example.com/catalog-pointer.json"
+    ) == (
+        (
+            "https://github.com/example/releases/download/"
+            "catalog-1/suparch-catalog.sqlite"
+        ),
+        checksum,
+        3,
+    )
 
 
 def test_loads_and_merges_jsonl_inputs(tmp_path: Path) -> None:

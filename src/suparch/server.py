@@ -2,6 +2,7 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
+from suparch import __version__
 from suparch.models import (
     CatalogInfo,
     Product,
@@ -32,6 +33,10 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
 )
+_low_level_server = getattr(mcp, "_mcp_server", None)
+if _low_level_server is None or not hasattr(_low_level_server, "version"):
+    raise RuntimeError("Unsupported FastMCP version: server version is unavailable")
+_low_level_server.version = __version__
 
 
 @mcp.tool()
