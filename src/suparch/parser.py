@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup, Tag
 
+from suparch.barcodes import canonicalize_gtin
 from suparch.models import Money, Product
 from suparch.normalization import PARSER_VERSION, build_ingredient
 
@@ -42,7 +43,9 @@ class IHerbProductParser:
 
         confidence = Decimal("1")
         if not active_ingredients:
-            confidence = Decimal("0.5")
+            raise ValueError(
+                "Could not find Supplement Facts; refusing non-supplement input"
+            )
 
         return Product(
             id=f"iherb:{source_product_id}",
@@ -133,9 +136,9 @@ class IHerbProductParser:
         structured: dict[str, object],
     ) -> str | None:
         for key in ("gtin14", "gtin13", "gtin12", "gtin8", "gtin"):
-            digits = _barcode_digits(structured.get(key))
-            if digits:
-                return digits
+            gtin = canonicalize_gtin(structured.get(key))
+            if gtin:
+                return gtin
 
         text = soup.get_text(" ", strip=True)
         match = re.search(
@@ -143,7 +146,7 @@ class IHerbProductParser:
             text,
             re.IGNORECASE,
         )
-        return _barcode_digits(match.group(1)) if match else None
+        return canonicalize_gtin(match.group(1)) if match else None
 
     def _supplement_facts(
         self,
@@ -283,12 +286,3 @@ def _split_ingredient_list(value: str) -> list[str]:
     if final:
         values.append(final)
     return values
-
-
-def _barcode_digits(value: object) -> str | None:
-    if value is None:
-        return None
-    digits = "".join(character for character in str(value) if character.isdigit())
-    if 8 <= len(digits) <= 14:
-        return digits
-    return None

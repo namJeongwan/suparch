@@ -2,6 +2,7 @@ import tempfile
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 
+from suparch.barcodes import canonicalize_gtin
 from suparch.models import Product
 
 
@@ -50,6 +51,7 @@ def enrich_iherb_with_dsld(
                 continue
             if stats is not None:
                 stats.matched += 1
+            use_dsld_label = not product.active_ingredients
             parser_version = ";".join(
                 filter(
                     None,
@@ -70,16 +72,25 @@ def enrich_iherb_with_dsld(
                     ),
                     "product_type": product.product_type or match.product_type,
                     "target_groups": product.target_groups or match.target_groups,
-                    "serving_size": product.serving_size or match.serving_size,
+                    "serving_size": (
+                        match.serving_size
+                        if use_dsld_label
+                        else product.serving_size
+                    ),
                     "servings_per_container": (
-                        product.servings_per_container
-                        or match.servings_per_container
+                        match.servings_per_container
+                        if use_dsld_label
+                        else product.servings_per_container
                     ),
                     "active_ingredients": (
-                        product.active_ingredients or match.active_ingredients
+                        match.active_ingredients
+                        if use_dsld_label
+                        else product.active_ingredients
                     ),
                     "other_ingredients": (
-                        product.other_ingredients or match.other_ingredients
+                        match.other_ingredients
+                        if use_dsld_label
+                        else product.other_ingredients
                     ),
                     "parser_version": parser_version,
                     "parser_confidence": min(
@@ -91,7 +102,4 @@ def enrich_iherb_with_dsld(
 
 
 def _upc_match_key(value: str | None) -> str:
-    if not value:
-        return ""
-    digits = "".join(character for character in value if character.isdigit())
-    return digits.lstrip("0") or "0"
+    return canonicalize_gtin(value) or ""

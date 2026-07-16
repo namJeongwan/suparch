@@ -71,3 +71,26 @@ def test_keeps_first_same_status_dsld_match_for_duplicate_upc() -> None:
 
     assert enriched.active_ingredients[0].canonical_name == "magnesium"
     assert "dsld:19279" in (enriched.parser_version or "")
+
+
+def test_does_not_mix_iherb_and_dsld_label_bundles() -> None:
+    iherb = Product.model_validate(
+        {
+            **load_json_catalog(SAMPLE_CATALOG)[0].model_dump(mode="json"),
+            "id": "iherb:19279",
+            "source": "iherb",
+            "source_product_id": "19279",
+            "upc": "012345678905",
+            "product_url": "https://www.iherb.com/pr/example/19279",
+        }
+    )
+    dsld = DsldProductMapper().map_label(
+        json.loads(DSLD_FIXTURE.read_text(encoding="utf-8"))
+    )
+
+    enriched = list(enrich_iherb_with_dsld([iherb], [dsld]))[0]
+
+    assert enriched.serving_size == iherb.serving_size
+    assert enriched.servings_per_container == iherb.servings_per_container
+    assert enriched.active_ingredients == iherb.active_ingredients
+    assert enriched.other_ingredients == iherb.other_ingredients
