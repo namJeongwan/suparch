@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from suparch.parser import IHerbProductParser
 
 FIXTURE = Path(__file__).parent / "fixtures" / "iherb_product.html"
@@ -17,6 +19,7 @@ def test_parses_iherb_supplement_label() -> None:
 
     assert product.id == "iherb:12345"
     assert product.brand == "Example Labs"
+    assert product.upc == "00012345678905"
     assert product.serving_size == "2 Capsules"
     assert product.servings_per_container == Decimal("60")
     assert product.price is not None
@@ -38,3 +41,27 @@ def test_parses_iherb_supplement_label() -> None:
         "rice flour",
         "silicon dioxide",
     ]
+
+
+def test_rejects_iherb_page_without_supplement_facts() -> None:
+    html = """
+    <html>
+      <head>
+        <script type="application/ld+json">
+          {
+            "@type": "Product",
+            "name": "Ordinary Shampoo",
+            "brand": {"name": "Example"},
+            "gtin12": "012345678905"
+          }
+        </script>
+      </head>
+      <body><h1>Ordinary Shampoo</h1></body>
+    </html>
+    """
+
+    with pytest.raises(ValueError, match="refusing non-supplement"):
+        IHerbProductParser().parse(
+            html,
+            url="https://www.iherb.com/pr/ordinary-shampoo/999",
+        )

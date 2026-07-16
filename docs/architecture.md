@@ -4,26 +4,28 @@ Suparch separates data production from MCP serving.
 
 ```text
                     data pipeline
-NIH DSLD API ------+
-                   |
-authorized HTML -> parser
-                   |
-                   v
- normalized Product JSONL
-          |
-          v
-catalog-next.sqlite
- integrity_check + metadata
-          |
-          v
- versioned object storage
-          |
-          | startup download or mounted file
-          v
-read-only SQLite repository
-          |
-          v
-stateless MCP server
+authorized iHerb feed/API ----+
+                              |
+authorized saved HTML -> parser
+                              |
+                              v
+                  iHerb Product JSONL
+                              |
+              optional DSLD enrichment by UPC
+                              |
+                              v
+                  catalog-next.sqlite
+                   integrity_check + metadata
+                              |
+                              v
+                   versioned object storage
+                              |
+                              | startup download or mounted file
+                              v
+                  read-only SQLite repository
+                              |
+                              v
+                    stateless MCP server
 ```
 
 ## Runtime boundary
@@ -36,10 +38,10 @@ This keeps Hub deployments stateless and avoids losing writes when an
 ephemeral container is restarted. It also allows the same database artifact to
 run in a local stdio MCP process.
 
-DSLD synchronization is an offline publication job. It uses bounded retries and
-concurrency, writes resumable JSONL, and then streams that source into a fresh
-SQLite snapshot. The MCP runtime never holds NIH API credentials or performs
-network fetches during a tool request.
+DSLD synchronization is an optional offline enrichment job. Raw DSLD products
+are not the public Suparch catalog and must not be represented as iHerb
+inventory. The MCP runtime never crawls or performs network fetches during a
+tool request.
 
 ## Catalog publication
 
@@ -58,18 +60,14 @@ The MCP container can receive the database through either:
 
 1. `SUPARCH_DB_PATH`: a mounted local path.
 2. `SUPARCH_CATALOG_URL`: an HTTPS artifact downloaded at startup.
-3. `SUPARCH_CATALOG_POINTER_URL`: a pointer to an immutable HTTPS artifact and
-   its SHA-256.
+3. `SUPARCH_CATALOG_POINTER_URL`: an operator-managed pointer to an immutable
+   HTTPS artifact and its SHA-256.
 
 When a checksum is available, pass it through `SUPARCH_CATALOG_SHA256`.
 
-The official container reads a schema-versioned pointer such as
-`v3/catalog-pointer.json` from the dedicated `catalog` branch. Each publication
-creates a new immutable prerelease, verifies the public download, and advances
-only that schema's pointer with one Git commit. On every startup, the runtime
-checks the pointer schema, binds cache metadata to both URL and SHA-256, and
-rehashes the cached file before opening it. Catalog publication remains a
-manual workflow so a full NIH refresh is deliberate and auditable.
+On every startup, the runtime checks pointer schema compatibility, binds cache
+metadata to both URL and SHA-256, and rehashes the cached file before opening
+it. Operators own publication of their authorized iHerb-backed snapshot.
 
 ## SQLite schema
 

@@ -1,6 +1,8 @@
 import argparse
 import json
+import os
 import sqlite3
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,10 +10,12 @@ from suparch.catalog import (
     SQLiteCatalogBuilder,
     catalog_sha256,
     iter_catalog_inputs,
+    iter_json_catalog,
     write_catalog_artifacts,
 )
-from suparch.crawler import IHerbClient
+from suparch.crawler import IHerbClient, IHerbSitemapClient
 from suparch.dsld import DsldClient, iter_dsld_products, sync_dsld_to_jsonl
+from suparch.enrichment import EnrichmentStats, enrich_iherb_with_dsld
 from suparch.models import Product
 from suparch.parser import IHerbProductParser
 from suparch.repositories import SqliteCatalogRepository
@@ -76,10 +80,13 @@ def _fetch(args: argparse.Namespace) -> None:
             "Live fetching is disabled by default. Re-run with --allow-live-fetch "
             "after reviewing the site's current terms and robots policy."
         )
-    html = IHerbClient().fetch_product(args.url)
+    try:
+        page = IHerbClient().fetch_product_page(args.url)
+    except (PermissionError, RuntimeError) as error:
+        raise SystemExit(str(error)) from None
     product = IHerbProductParser().parse(
-        html,
-        url=args.url,
+        page.html,
+        url=page.url,
         locale=args.locale,
     )
     if args.database:
@@ -87,6 +94,45 @@ def _fetch(args: argparse.Namespace) -> None:
         print(f"fetched and ingested {product.id} into {args.database}")
     else:
         _write_product(product, args.output)
+
+
+def _iherb_discover(args: argparse.Namespace) -> None:
+    if args.limit < 0:
+        raise SystemExit("--limit must be zero or positive")
+    limit = args.limit or None
+    references = IHerbSitemapClient().iter_product_references(limit=limit)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{args.output.name}.",
+        suffix=".tmp",
+        dir=args.output.parent,
+    )
+    temporary = Path(temporary_name)
+    count = 0
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destination:
+            for reference in references:
+                destination.write(
+                    json.dumps(
+                        {
+                            "url": reference.url,
+                            "last_modified": (
+                                reference.last_modified.isoformat()
+                                if reference.last_modified
+                                else None
+                            ),
+                        }
+                    )
+                    + "\n"
+                )
+                count += 1
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary, args.output)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    print(f"discovered {count} iHerb product URLs in {args.output}")
 
 
 def _parse_manifest(args: argparse.Namespace) -> None:
@@ -161,14 +207,46 @@ def _dsld_sync(args: argparse.Namespace) -> None:
         )
     print(f"wrote {written} new DSLD products to {args.output}")
 
+
+def _enrich_dsld(args: argparse.Namespace) -> None:
+    stats = EnrichmentStats()
+    enriched = enrich_iherb_with_dsld(
+        iter_json_catalog(args.iherb),
+        iter_dsld_products(args.dsld),
+        stats=stats,
+    )
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{args.output.name}.",
+        suffix=".tmp",
+        dir=args.output.parent,
+    )
+    temporary = Path(temporary_name)
+    count = 0
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destination:
+            for product in enriched:
+                destination.write(product.model_dump_json() + "\n")
+                count += 1
+            destination.flush()
+            os.fsync(destination.fileno())
+        os.replace(temporary, args.output)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+
+    print(
+        f"wrote {count} iHerb products to {args.output}; "
+        f"DSLD matches={stats.matched}"
+    )
     if args.database:
         SQLiteCatalogBuilder().build(
-            iter_dsld_products(args.output),
+            iter_json_catalog(args.output),
             args.database,
             metadata={
                 "built_at": datetime.now(UTC).isoformat(),
-                "label_source": "NIH DSLD v9",
-                "license": "CC0-1.0",
+                "product_source": "iHerb",
+                "label_enrichment": "NIH DSLD v9 by UPC",
             },
         )
         manifest_path, checksum_path = write_catalog_artifacts(args.database)
@@ -226,16 +304,28 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--allow-live-fetch", action="store_true")
     fetch.set_defaults(handler=_fetch)
 
+    iherb_discover = subparsers.add_parser(
+        "iherb-discover",
+        help="Discover product URLs from iHerb's published sitemaps",
+    )
+    iherb_discover.add_argument("--output", type=Path, required=True)
+    iherb_discover.add_argument(
+        "--limit",
+        type=int,
+        default=1000,
+        help="Maximum product references; use 0 for all sitemap entries",
+    )
+    iherb_discover.set_defaults(handler=_iherb_discover)
+
     verify = subparsers.add_parser("verify", help="Verify a SQLite catalog")
     verify.add_argument("--database", type=Path, required=True)
     verify.set_defaults(handler=_verify)
 
     dsld_sync = subparsers.add_parser(
         "dsld-sync",
-        help="Sync real supplement labels from the NIH DSLD v9 API",
+        help="Sync optional NIH DSLD enrichment labels to JSONL",
     )
     dsld_sync.add_argument("--output", type=Path, required=True)
-    dsld_sync.add_argument("--database", type=Path)
     dsld_sync.add_argument("--query", default="*")
     dsld_sync.add_argument(
         "--status",
@@ -256,6 +346,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
     )
     dsld_sync.set_defaults(handler=_dsld_sync)
+
+    enrich_dsld = subparsers.add_parser(
+        "enrich-dsld",
+        help="Enrich iHerb products with DSLD labels matched by UPC",
+    )
+    enrich_dsld.add_argument("--iherb", type=Path, required=True)
+    enrich_dsld.add_argument("--dsld", type=Path, required=True)
+    enrich_dsld.add_argument("--output", type=Path, required=True)
+    enrich_dsld.add_argument("--database", type=Path)
+    enrich_dsld.set_defaults(handler=_enrich_dsld)
     return parser
 
 
