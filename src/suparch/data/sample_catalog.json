@@ -1,0 +1,103 @@
+[
+  {
+    "id": "example:magnesium-glycinate",
+    "source": "example",
+    "source_product_id": "magnesium-glycinate",
+    "name": "Magnesium Glycinate",
+    "brand": "Example Labs",
+    "serving_size": "2 capsules",
+    "servings_per_container": "60",
+    "active_ingredients": [
+      {
+        "canonical_name": "magnesium",
+        "label_name": "Magnesium",
+        "form": "magnesium glycinate",
+        "amount": "200",
+        "unit": "mg",
+        "daily_value_percent": "48",
+        "raw_text": "Magnesium (as Magnesium Glycinate)"
+      }
+    ],
+    "other_ingredients": [
+      "hypromellose",
+      "rice flour"
+    ],
+    "price": {
+      "amount": "19.99",
+      "currency": "USD"
+    },
+    "product_url": "https://example.com/products/magnesium-glycinate",
+    "crawled_at": "2026-07-16T00:00:00Z"
+  },
+  {
+    "id": "example:calcium-magnesium",
+    "source": "example",
+    "source_product_id": "calcium-magnesium",
+    "name": "Calcium Magnesium Complex",
+    "brand": "Sample Nutrition",
+    "serving_size": "3 tablets",
+    "servings_per_container": "30",
+    "active_ingredients": [
+      {
+        "canonical_name": "calcium",
+        "label_name": "Calcium",
+        "form": "calcium citrate",
+        "amount": "500",
+        "unit": "mg",
+        "daily_value_percent": "38",
+        "raw_text": "Calcium (as Calcium Citrate)"
+      },
+      {
+        "canonical_name": "magnesium",
+        "label_name": "Magnesium",
+        "form": "magnesium oxide",
+        "amount": "250",
+        "unit": "mg",
+        "daily_value_percent": "60",
+        "raw_text": "Magnesium (as Magnesium Oxide)"
+      }
+    ],
+    "other_ingredients": [
+      "cellulose",
+      "silicon dioxide"
+    ],
+    "price": {
+      "amount": "13.50",
+      "currency": "USD"
+    },
+    "product_url": "https://example.com/products/calcium-magnesium",
+    "crawled_at": "2026-07-16T00:00:00Z"
+  },
+  {
+    "id": "example:vitamin-d3",
+    "source": "example",
+    "source_product_id": "vitamin-d3",
+    "name": "Vitamin D3",
+    "brand": "Example Labs",
+    "serving_size": "1 softgel",
+    "servings_per_container": "120",
+    "active_ingredients": [
+      {
+        "canonical_name": "vitamin d",
+        "label_name": "Vitamin D3",
+        "form": "cholecalciferol",
+        "amount": "50",
+        "unit": "mcg",
+        "daily_value_percent": "250",
+        "raw_text": "Vitamin D3 (as Cholecalciferol)"
+      }
+    ],
+    "other_ingredients": [
+      "olive oil",
+      "gelatin",
+      "glycerin"
+    ],
+    "price": {
+      "amount": "8.99",
+      "currency": "USD"
+    },
+    "product_url": "https://example.com/products/vitamin-d3",
+    "crawled_at": "2026-07-16T00:00:00Z"
+  }
+]
+
