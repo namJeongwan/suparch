@@ -10,6 +10,11 @@ on:
         description: "Release version to publish (for example, 0.3.0)"
         required: true
         type: string
+      promote_aliases:
+        description: "Also update the minor and latest tags"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -33,11 +38,15 @@ jobs:
         name: Compute image metadata
         env:
           INPUT_VERSION: ${{ inputs.version }}
+          PROMOTE_ALIASES: ${{ inputs.promote_aliases }}
         run: |
           set -euo pipefail
 
           version="${INPUT_VERSION:-${GITHUB_REF_NAME#v}}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+          number='(0|[1-9][0-9]*)'
+          identifier='(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
+          semver="^${number}\.${number}\.${number}(-${identifier}(\.${identifier})*)?$"
+          if [[ ! "$version" =~ $semver ]]; then
             echo "Invalid release version: $version" >&2
             exit 1
           fi
@@ -50,7 +59,7 @@ jobs:
             echo "revision=$revision"
             echo "tags<<EOF"
             echo "$image:$version"
-            if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [[ "$version" != *-* && "$PROMOTE_ALIASES" == "true" ]]; then
               echo "$image:${version%.*}"
               echo "$image:latest"
             fi
