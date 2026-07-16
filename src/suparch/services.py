@@ -42,7 +42,10 @@ class CatalogService:
                         form=ingredient.form,
                         amount=ingredient.amount,
                         unit=ingredient.unit,
+                        amount_operator=ingredient.amount_operator,
                         daily_value_percent=ingredient.daily_value_percent,
+                        daily_value_operator=ingredient.daily_value_operator,
+                        daily_values=ingredient.daily_values,
                     )
                 )
 
@@ -73,6 +76,8 @@ class CatalogService:
         for selection in selections:
             product = products_by_id[selection.product_id]
             for ingredient in product.active_ingredients:
+                if ingredient.amount_operator not in {None, "", "="}:
+                    continue
                 amount = ingredient.normalized_amount
                 unit = ingredient.normalized_unit
                 if amount is None or unit is None:

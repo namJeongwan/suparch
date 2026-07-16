@@ -25,6 +25,12 @@ def test_normalizes_mass_to_micrograms() -> None:
     assert ingredient.normalized_unit == "mcg"
 
 
+def test_maps_common_b_vitamin_alias() -> None:
+    ingredient = build_ingredient("Vitamin B5", "10 mg")
+
+    assert ingredient.canonical_name == "pantothenic acid"
+
+
 def test_parses_cfu_magnitude() -> None:
     ingredient = build_ingredient("Probiotic Cultures", "50 Billion CFU")
 

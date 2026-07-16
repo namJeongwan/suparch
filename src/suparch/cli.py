@@ -7,10 +7,11 @@ from pathlib import Path
 from suparch.catalog import (
     SQLiteCatalogBuilder,
     catalog_sha256,
-    load_catalog_inputs,
+    iter_catalog_inputs,
     write_catalog_artifacts,
 )
 from suparch.crawler import IHerbClient
+from suparch.dsld import DsldClient, iter_dsld_products, sync_dsld_to_jsonl
 from suparch.models import Product
 from suparch.parser import IHerbProductParser
 from suparch.repositories import SqliteCatalogRepository
@@ -39,15 +40,19 @@ def _merge_products(database: Path, new_products: list[Product]) -> None:
 
 
 def _build(args: argparse.Namespace) -> None:
-    products = load_catalog_inputs(args.input)
     SQLiteCatalogBuilder().build(
-        products,
+        iter_catalog_inputs(args.input),
         args.output,
         metadata={"built_at": datetime.now(UTC).isoformat()},
     )
     manifest_path, checksum_path = write_catalog_artifacts(args.output)
+    with sqlite3.connect(
+        f"file:{args.output.resolve()}?mode=ro",
+        uri=True,
+    ) as connection:
+        product_count = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
     print(
-        f"built {args.output} with {len(products)} products; "
+        f"built {args.output} with {product_count} products; "
         f"manifest={manifest_path}; checksum={checksum_path}"
     )
 
@@ -136,6 +141,43 @@ def _verify(args: argparse.Namespace) -> None:
     )
 
 
+def _dsld_sync(args: argparse.Namespace) -> None:
+    status = {
+        "off-market": 0,
+        "on-market": 1,
+        "all": 2,
+    }[args.status]
+    limit = args.limit if args.limit > 0 else None
+    with DsldClient() as client:
+        written = sync_dsld_to_jsonl(
+            client=client,
+            output=args.output,
+            query=args.query,
+            status=status,
+            limit=limit,
+            page_size=args.page_size,
+            workers=args.workers,
+            resume=args.resume,
+        )
+    print(f"wrote {written} new DSLD products to {args.output}")
+
+    if args.database:
+        SQLiteCatalogBuilder().build(
+            iter_dsld_products(args.output),
+            args.database,
+            metadata={
+                "built_at": datetime.now(UTC).isoformat(),
+                "label_source": "NIH DSLD v9",
+                "license": "CC0-1.0",
+            },
+        )
+        manifest_path, checksum_path = write_catalog_artifacts(args.database)
+        print(
+            f"built {args.database}; manifest={manifest_path}; "
+            f"checksum={checksum_path}"
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="suparch-catalog",
@@ -187,6 +229,33 @@ def build_parser() -> argparse.ArgumentParser:
     verify = subparsers.add_parser("verify", help="Verify a SQLite catalog")
     verify.add_argument("--database", type=Path, required=True)
     verify.set_defaults(handler=_verify)
+
+    dsld_sync = subparsers.add_parser(
+        "dsld-sync",
+        help="Sync real supplement labels from the NIH DSLD v9 API",
+    )
+    dsld_sync.add_argument("--output", type=Path, required=True)
+    dsld_sync.add_argument("--database", type=Path)
+    dsld_sync.add_argument("--query", default="*")
+    dsld_sync.add_argument(
+        "--status",
+        choices=["on-market", "off-market", "all"],
+        default="on-market",
+    )
+    dsld_sync.add_argument(
+        "--limit",
+        type=int,
+        default=1000,
+        help="Maximum total JSONL records; use 0 for all matching labels",
+    )
+    dsld_sync.add_argument("--page-size", type=int, default=100)
+    dsld_sync.add_argument("--workers", type=int, default=4, choices=range(1, 9))
+    dsld_sync.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
+    dsld_sync.set_defaults(handler=_dsld_sync)
     return parser
 
 

@@ -9,6 +9,7 @@ from suparch.catalog import (
     SQLiteCatalogBuilder,
     load_catalog_inputs,
     load_json_catalog,
+    validate_catalog,
     write_catalog_artifacts,
 )
 from suparch.models import ProductSearchQuery
@@ -82,6 +83,16 @@ def test_rejects_foreign_sqlite_database(tmp_path: Path) -> None:
         SqliteCatalogRepository(database)
 
 
+def test_rejects_schema_missing_a_consumed_column(database: Path) -> None:
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "ALTER TABLE product_ingredients DROP COLUMN daily_value_operator"
+        )
+
+    with pytest.raises(RuntimeError, match="daily_value_operator"):
+        validate_catalog(database)
+
+
 def test_lists_catalog_larger_than_sqlite_variable_limit(tmp_path: Path) -> None:
     template = load_json_catalog(SAMPLE_CATALOG)[0]
     products = [
@@ -105,7 +116,7 @@ def test_writes_catalog_manifest_and_checksum(database: Path) -> None:
     manifest_path, checksum_path = write_catalog_artifacts(database)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == 3
     assert manifest["product_count"] == 3
     assert manifest["sha256"] == checksum_path.read_text(encoding="utf-8").split()[0]
 
@@ -129,10 +140,55 @@ def test_loads_and_merges_jsonl_inputs(tmp_path: Path) -> None:
     }
 
 
+def test_streaming_builder_replaces_duplicate_product_ids(tmp_path: Path) -> None:
+    products = load_json_catalog(SAMPLE_CATALOG)
+    replacement = products[0].model_copy(
+        update={"name": "Replacement Magnesium"}
+    )
+    database = tmp_path / "duplicates.sqlite"
+
+    SQLiteCatalogBuilder().build(
+        iter([products[0], products[1], replacement]),
+        database,
+    )
+    repository = SqliteCatalogRepository(database)
+
+    assert repository.catalog_info().product_count == 2
+    assert repository.get_product(products[0].id).name == "Replacement Magnesium"  # type: ignore[union-attr]
+
+
+def test_filters_normalized_supplement_form(database: Path) -> None:
+    product = load_json_catalog(SAMPLE_CATALOG)[0]
+    product.supplement_form = "Capsule(s)"
+    SQLiteCatalogBuilder().build([product], database)
+
+    result = SqliteCatalogRepository(database).search_products(
+        ProductSearchQuery(supplement_forms=["capsule s"])
+    )
+
+    assert result.total == 1
+
+
+def test_filters_product_type_and_target_group(database: Path) -> None:
+    product = load_json_catalog(SAMPLE_CATALOG)[0]
+    product.product_type = "Multi-Vitamin and Mineral (MVM)"
+    product.target_groups = ["Pregnant and Lactating"]
+    SQLiteCatalogBuilder().build([product], database)
+
+    result = SqliteCatalogRepository(database).search_products(
+        ProductSearchQuery(
+            product_types=["multi vitamin and mineral mvm"],
+            target_groups=["pregnant and lactating"],
+        )
+    )
+
+    assert result.total == 1
+
+
 def test_reports_sqlite_catalog_info(database: Path) -> None:
     info = SqliteCatalogRepository(database).catalog_info()
 
-    assert info.schema_version == 2
+    assert info.schema_version == 3
     assert info.product_count == 3
     assert info.source == "sqlite"
     assert info.database_bytes is not None

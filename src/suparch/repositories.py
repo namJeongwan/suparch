@@ -86,6 +86,8 @@ def _matches(product: Product, search: ProductSearchQuery) -> bool:
                 [
                     product.name,
                     product.brand,
+                    product.product_type or "",
+                    *product.target_groups,
                     *ingredient_names,
                     *ingredient_forms,
                 ]
@@ -93,6 +95,27 @@ def _matches(product: Product, search: ProductSearchQuery) -> bool:
         )
         if normalize_text(search.query) not in haystack:
             return False
+
+    if search.upc and product.upc != _normalize_upc(search.upc):
+        return False
+    if search.on_market is not None and product.on_market is not search.on_market:
+        return False
+    if search.supplement_forms and normalize_text(product.supplement_form or "") not in {
+        normalize_text(form) for form in search.supplement_forms
+    }:
+        return False
+    if search.product_types and normalize_text(product.product_type or "") not in {
+        normalize_text(product_type) for product_type in search.product_types
+    }:
+        return False
+    product_target_groups = {
+        normalize_text(target_group) for target_group in product.target_groups
+    }
+    if any(
+        not any(required in available for available in product_target_groups)
+        for required in _target_group_filters(search.target_groups)
+    ):
+        return False
 
     if any(
         canonicalize_ingredient(name)[0] not in ingredient_names
@@ -173,6 +196,38 @@ class SqliteCatalogRepository:
             joins.append("JOIN product_search ON product_search.product_id = p.id")
             conditions.append("product_search MATCH ?")
             parameters.append(_fts_query(search.query))
+
+        if search.upc:
+            conditions.append("p.upc = ?")
+            parameters.append(_normalize_upc(search.upc))
+        if search.on_market is not None:
+            conditions.append("p.on_market = ?")
+            parameters.append(int(search.on_market))
+        if search.supplement_forms:
+            placeholders = ", ".join("?" for _ in search.supplement_forms)
+            conditions.append(
+                f"p.supplement_form_normalized IN ({placeholders})"
+            )
+            parameters.extend(
+                normalize_text(form) for form in search.supplement_forms
+            )
+        if search.product_types:
+            placeholders = ", ".join("?" for _ in search.product_types)
+            conditions.append(f"p.product_type_normalized IN ({placeholders})")
+            parameters.extend(
+                normalize_text(product_type)
+                for product_type in search.product_types
+            )
+        for target_group in _target_group_filters(search.target_groups):
+            conditions.append(
+                """
+                EXISTS (
+                    SELECT 1 FROM product_target_groups ptg
+                    WHERE ptg.product_id = p.id AND ptg.normalized_name LIKE ?
+                )
+                """
+            )
+            parameters.append(f"%{target_group}%")
 
         for ingredient in search.include_ingredients:
             conditions.append(
@@ -296,12 +351,16 @@ class SqliteCatalogRepository:
                 {
                     "canonical_name": row["canonical_name"],
                     "label_name": row["label_name"],
+                    "taxonomy_name": row["taxonomy_name"],
                     "form": row["form"],
                     "amount": row["amount"],
                     "unit": row["unit"],
+                    "amount_operator": row["amount_operator"],
                     "normalized_amount": row["normalized_amount"],
                     "normalized_unit": row["normalized_unit"],
                     "daily_value_percent": row["daily_value_percent"],
+                    "daily_value_operator": row["daily_value_operator"],
+                    "daily_values": json.loads(row["daily_values_json"]),
                     "raw_text": row["raw_text"],
                     "parent_ingredient": row["parent_ingredient"],
                     "confidence": row["confidence"],
@@ -327,6 +386,15 @@ class SqliteCatalogRepository:
                     source_product_id=row["source_product_id"],
                     name=row["name"],
                     brand=row["brand"],
+                    upc=row["upc"],
+                    on_market=(
+                        bool(row["on_market"])
+                        if row["on_market"] is not None
+                        else None
+                    ),
+                    supplement_form=row["supplement_form"],
+                    product_type=row["product_type"],
+                    target_groups=json.loads(row["target_groups_json"]),
                     serving_size=row["serving_size"],
                     servings_per_container=row["servings_per_container"],
                     active_ingredients=ingredients.get(row["id"], []),
@@ -347,3 +415,21 @@ def _fts_query(value: str) -> str:
     if not tokens:
         return '""'
     return " AND ".join(f'"{token}"*' for token in tokens)
+
+
+def _normalize_upc(value: str) -> str:
+    return "".join(character for character in value if character.isdigit())
+
+
+def _target_group_filters(values: list[str]) -> list[str]:
+    filters: list[str] = []
+    for value in values:
+        normalized = normalize_text(value)
+        if normalized in {
+            "pregnant and lactating",
+            "pregnancy and lactation",
+        }:
+            filters.extend(["pregnant", "lactating"])
+        elif normalized:
+            filters.append(normalized)
+    return list(dict.fromkeys(filters))

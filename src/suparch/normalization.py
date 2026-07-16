@@ -1,11 +1,22 @@
 import re
 from decimal import Decimal, InvalidOperation
 
-from suparch.models import Ingredient
+from suparch.models import DailyValue, Ingredient
 
 PARSER_VERSION = "0.1.0"
 
 ALIASES = {
+    "magnesiium": "magnesium",
+    "vitamin b1": "thiamin",
+    "thiamine": "thiamin",
+    "vitamin b2": "riboflavin",
+    "vitamin b3": "niacin",
+    "nicotinamide": "niacin",
+    "vitamin b5": "pantothenic acid",
+    "pantothenic acid": "pantothenic acid",
+    "pyridoxine": "vitamin b6",
+    "vitamin b6": "vitamin b6",
+    "vitamin b7": "biotin",
     "vitamin d3": "vitamin d",
     "vitamin d2": "vitamin d",
     "cholecalciferol": "vitamin d",
@@ -34,6 +45,7 @@ UNIT_ALIASES = {
     "micrograms": "mcg",
     "gram": "g",
     "grams": "g",
+    "gram(s)": "g",
     "i.u.": "IU",
     "iu": "IU",
     "cfu": "CFU",
@@ -152,6 +164,11 @@ def build_ingredient(
     daily_value = parse_decimal(
         daily_value_text.replace("%", "") if daily_value_text else None
     )
+    daily_values = (
+        [DailyValue(percent=daily_value)]
+        if daily_value is not None
+        else []
+    )
     return Ingredient(
         canonical_name=canonical_name,
         label_name=label_name.strip(),
@@ -161,6 +178,7 @@ def build_ingredient(
         normalized_amount=normalized_amount,
         normalized_unit=normalized_unit,
         daily_value_percent=daily_value,
+        daily_values=daily_values,
         raw_text=raw_text,
         parent_ingredient=parent_ingredient,
         confidence=confidence,

@@ -37,6 +37,11 @@ mcp = FastMCP(
 @mcp.tool()
 def search_products(
     query: str | None = None,
+    upc: str | None = None,
+    on_market: bool | None = None,
+    supplement_forms: list[str] | None = None,
+    product_types: list[str] | None = None,
+    target_groups: list[str] | None = None,
     include_ingredients: list[str] | None = None,
     exclude_ingredients: list[str] | None = None,
     forms: list[str] | None = None,
@@ -49,6 +54,11 @@ def search_products(
     """Search supplement labels using objective product and ingredient filters."""
     search = ProductSearchQuery(
         query=query,
+        upc=upc,
+        on_market=on_market,
+        supplement_forms=supplement_forms or [],
+        product_types=product_types or [],
+        target_groups=target_groups or [],
         include_ingredients=include_ingredients or [],
         exclude_ingredients=exclude_ingredients or [],
         forms=forms or [],
