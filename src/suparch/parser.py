@@ -35,6 +35,7 @@ class IHerbProductParser:
         name = self._product_name(soup, structured)
         brand = self._brand(soup, structured)
         source_product_id = self._source_product_id(url, soup)
+        upc = self._upc(soup, structured)
         active_ingredients, serving_size, servings = self._supplement_facts(soup)
         other_ingredients = self._other_ingredients(soup)
         price = self._price(structured)
@@ -49,6 +50,7 @@ class IHerbProductParser:
             source_product_id=source_product_id,
             name=name,
             brand=brand,
+            upc=upc,
             serving_size=serving_size,
             servings_per_container=servings,
             active_ingredients=active_ingredients,
@@ -124,6 +126,24 @@ class IHerbProductParser:
         if slug:
             return slug
         raise ValueError("Could not determine source product id")
+
+    @staticmethod
+    def _upc(
+        soup: BeautifulSoup,
+        structured: dict[str, object],
+    ) -> str | None:
+        for key in ("gtin14", "gtin13", "gtin12", "gtin8", "gtin"):
+            digits = _barcode_digits(structured.get(key))
+            if digits:
+                return digits
+
+        text = soup.get_text(" ", strip=True)
+        match = re.search(
+            r"\b(?:UPC|GTIN(?:-1[234]|-8)?)\s*:?\s*([0-9][0-9 -]{6,20})",
+            text,
+            re.IGNORECASE,
+        )
+        return _barcode_digits(match.group(1)) if match else None
 
     def _supplement_facts(
         self,
@@ -263,3 +283,12 @@ def _split_ingredient_list(value: str) -> list[str]:
     if final:
         values.append(final)
     return values
+
+
+def _barcode_digits(value: object) -> str | None:
+    if value is None:
+        return None
+    digits = "".join(character for character in str(value) if character.isdigit())
+    if 8 <= len(digits) <= 14:
+        return digits
+    return None

@@ -21,21 +21,30 @@ Production deployments use an immutable SQLite snapshot opened in read-only
 mode. The crawler and catalog builder run separately from the public MCP
 process, which makes the server suitable for ephemeral MCP Hub containers.
 
-## Sync real labels from NIH DSLD
+## Optional NIH DSLD label enrichment
 
-The primary open catalog source is the NIH Office of Dietary Supplements'
-Dietary Supplement Label Database (DSLD) v9 API. DSLD provides real label
-records under CC0, including UPCs, market status, serving information,
-ingredient forms, amounts, and target groups.
+Suparch's product catalog is intended to contain iHerb products. NIH's Dietary
+Supplement Label Database (DSLD) is an optional label source for enrichment
+when an iHerb record can be matched by UPC. DSLD records must not be presented
+as if they were products sold by iHerb.
 
-Sync a resumable JSONL source and publish a SQLite snapshot:
+Sync a resumable DSLD JSONL enrichment source:
 
 ```bash
 uv run suparch-catalog dsld-sync \
   --query magnesium \
   --status on-market \
   --limit 1000 \
-  --output build/dsld-products.jsonl \
+  --output build/dsld-products.jsonl
+```
+
+Then enrich an authorized iHerb Product JSON/JSONL source by matching UPCs:
+
+```bash
+uv run suparch-catalog enrich-dsld \
+  --iherb build/iherb-products.jsonl \
+  --dsld build/dsld-products.jsonl \
+  --output build/enriched-iherb-products.jsonl \
   --database build/catalog.sqlite
 ```
 
@@ -107,6 +116,19 @@ uv run suparch-catalog parse-html \
   --output product.json
 ```
 
+Discover product references from iHerb's published sitemap without using its
+disallowed search path:
+
+```bash
+uv run suparch-catalog iherb-discover \
+  --limit 1000 \
+  --output build/iherb-product-refs.jsonl
+```
+
+The sitemap contains multiple iHerb departments, so these references are only
+discovery input. An authorized feed or page-ingestion job must filter the
+supplement category before publishing a Suparch catalog.
+
 To merge the parsed product directly into a catalog snapshot:
 
 ```bash
@@ -141,17 +163,16 @@ operator explicitly passes `--allow-live-fetch`. It checks the current
 anti-bot bypass, or browser fingerprint evasion. Operators remain responsible
 for reviewing the site's current terms before using it.
 
-At the time of the latest project check, iHerb's robots policy rejected product
-page fetching for the Suparch user agent. Suparch preserves that fail-closed
-behavior. See [docs/data-sources.md](docs/data-sources.md) for approved-input
-options and the official affiliate path.
+At the time of the latest project check, standard product paths were allowed by
+the published robots rules, but unauthenticated product requests returned HTTP
+403. Suparch preserves that fail-closed behavior. See
+[docs/data-sources.md](docs/data-sources.md) for approved-input options and the
+official affiliate path.
 
 ## Hub deployment
 
-The published container defaults to an official catalog pointer. The pointer
-selects one immutable GitHub Release asset and its SHA-256, so a Hub can start
-Suparch without provisioning a database. Override the catalog variables when
-operating a private or curated snapshot.
+Hub deployments require an authorized iHerb-backed catalog. Suparch does not
+ship NIH records as a substitute for iHerb inventory, pricing, or availability.
 
 Run the stateless Streamable HTTP transport:
 
@@ -247,8 +268,10 @@ names plus the total ingredient count. Use `get_product` for the complete label.
 ## Architecture
 
 ```text
-NIH DSLD API ---------------------------> normalized Product JSONL
-authorized saved HTML -> parser --------> normalized Product JSONL
+authorized iHerb feed/API --------------> iHerb Product JSONL
+authorized saved HTML -> parser --------> iHerb Product JSONL
+                                                   |
+                                optional DSLD enrichment by UPC
                                                    |
                                                    v
                                          immutable SQLite snapshot
@@ -268,7 +291,7 @@ publication design.
 | Variable | Purpose |
 | --- | --- |
 | `SUPARCH_DB_PATH` | Read-only SQLite file mounted into the runtime |
-| `SUPARCH_CATALOG_POINTER_URL` | Official pointer containing an immutable catalog URL and SHA-256 |
+| `SUPARCH_CATALOG_POINTER_URL` | Operator-managed pointer containing an immutable catalog URL and SHA-256 |
 | `SUPARCH_CATALOG_URL` | HTTPS SQLite artifact downloaded on startup |
 | `SUPARCH_CATALOG_MANIFEST_URL` | Optional custom manifest URL; defaults to `<catalog URL>.manifest.json` |
 | `SUPARCH_CATALOG_SHA256` | Optional artifact checksum |
@@ -278,22 +301,23 @@ publication design.
 | `SUPARCH_PORT` / `PORT` | HTTP port |
 | `SUPARCH_MCP_PATH` | Streamable HTTP endpoint, default `/mcp` |
 
-## Publish the official catalog
+## iHerb data acquisition
 
-Maintainers can run the `Publish DSLD catalog` GitHub Actions workflow. It
-requires an explicit `PUBLISH` confirmation, builds a fresh snapshot with
-`--no-resume`, verifies SQLite integrity, stores a 30-day workflow artifact,
-and publishes three assets under a new immutable prerelease:
+iHerb's current robots policy disallows automated `/search` URLs and advertises
+product sitemaps. Standard product pages are not disallowed by path, but
+unauthenticated crawler requests currently receive HTTP 403. Suparch does not
+evade that access control.
+
+The production path is:
 
 ```text
-suparch-catalog.sqlite
-suparch-catalog.sqlite.sha256
-suparch-catalog.sqlite.manifest.json
+approved iHerb affiliate feed/API or operator-supplied pages
+  -> iHerb Product records
+  -> optional DSLD enrichment by UPC
+  -> immutable SQLite snapshot
+  -> read-only MCP
 ```
 
-After downloading and verifying the public release asset, the workflow advances
-`v3/catalog-pointer.json` through one commit on the dedicated `catalog` branch.
-Pointers are schema-versioned so future catalog formats cannot break older
-images.
-The workflow is intentionally manual because a complete DSLD refresh can
-request more than 200,000 public label records.
+iHerb lists Partnerize, Impact, CJ, and Awin as official affiliate platforms
+and explicitly accepts shopping-comparison partners. An approved feed or
+written data-access permission is therefore the next external dependency.

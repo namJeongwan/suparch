@@ -15,10 +15,8 @@ def test_registry_metadata_matches_project() -> None:
         variable["name"]: variable
         for variable in metadata["packages"][0]["environmentVariables"]
     }
-    assert variables["SUPARCH_CATALOG_POINTER_URL"]["default"].endswith(
-        "/catalog/v3/catalog-pointer.json"
-    )
-    assert variables["SUPARCH_CATALOG_URL"]["isRequired"] is False
+    assert "SUPARCH_CATALOG_POINTER_URL" not in variables
+    assert variables["SUPARCH_CATALOG_URL"]["isRequired"] is True
     assert variables["SUPARCH_CATALOG_MANIFEST_URL"]["isRequired"] is False
     assert 'io.modelcontextprotocol.server.name="io.github.namjeongwan/suparch"' in dockerfile
     assert "mcp-name: io.github.namjeongwan/suparch" in readme

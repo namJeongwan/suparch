@@ -17,6 +17,7 @@ def test_parses_iherb_supplement_label() -> None:
 
     assert product.id == "iherb:12345"
     assert product.brand == "Example Labs"
+    assert product.upc == "00012345678905"
     assert product.serving_size == "2 Capsules"
     assert product.servings_per_container == Decimal("60")
     assert product.price is not None

@@ -23,16 +23,9 @@
       ],
       "environmentVariables": [
         {
-          "name": "SUPARCH_CATALOG_POINTER_URL",
-          "description": "HTTPS URL of the official immutable catalog pointer.",
-          "default": "https://raw.githubusercontent.com/namJeongwan/suparch/catalog/v3/catalog-pointer.json",
-          "isRequired": false,
-          "isSecret": false
-        },
-        {
           "name": "SUPARCH_CATALOG_URL",
-          "description": "Optional custom HTTPS SQLite catalog URL; overrides the pointer.",
-          "isRequired": false,
+          "description": "Authorized iHerb-backed SQLite catalog URL.",
+          "isRequired": true,
           "isSecret": false
         },
         {
