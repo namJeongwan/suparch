@@ -71,7 +71,11 @@ def enrich_iherb_with_dsld(
                         product.supplement_form or match.supplement_form
                     ),
                     "product_type": product.product_type or match.product_type,
-                    "target_groups": product.target_groups or match.target_groups,
+                    "target_groups": (
+                        match.target_groups
+                        if use_dsld_label
+                        else product.target_groups
+                    ),
                     "serving_size": (
                         match.serving_size
                         if use_dsld_label
