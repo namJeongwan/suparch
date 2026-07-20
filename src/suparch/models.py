@@ -42,6 +42,13 @@ class Money(BaseModel):
     currency: str = Field(pattern=r"^[A-Z]{3}$")
 
 
+class OfferContext(BaseModel):
+    """Location and fulfillment provenance for a retailer price observation."""
+
+    location_id: str | None = None
+    fulfillment: list[str] = Field(default_factory=list)
+
+
 class Product(BaseModel):
     """Normalized product label with source provenance."""
 
@@ -60,6 +67,7 @@ class Product(BaseModel):
     active_ingredients: list[Ingredient] = Field(default_factory=list)
     other_ingredients: list[str] = Field(default_factory=list)
     price: Money | None = None
+    offer_context: OfferContext | None = None
     product_url: HttpUrl
     crawled_at: datetime
     locale: str | None = None
@@ -69,6 +77,7 @@ class Product(BaseModel):
 
 class ProductSummary(BaseModel):
     id: str
+    source: str
     name: str
     brand: str
     upc: str | None
@@ -80,6 +89,7 @@ class ProductSummary(BaseModel):
     ingredient_names: list[str]
     ingredient_names_truncated: bool
     price: Money | None
+    offer_context: OfferContext | None
     product_url: HttpUrl
     crawled_at: datetime
 
@@ -90,6 +100,7 @@ class ProductSummary(BaseModel):
         )
         return cls(
             id=product.id,
+            source=product.source,
             name=product.name,
             brand=product.brand,
             upc=product.upc,
@@ -101,6 +112,7 @@ class ProductSummary(BaseModel):
             ingredient_names=ingredient_names[:20],
             ingredient_names_truncated=len(ingredient_names) > 20,
             price=product.price,
+            offer_context=product.offer_context,
             product_url=product.product_url,
             crawled_at=product.crawled_at,
         )

@@ -108,7 +108,7 @@ def test_official_pointer_resolves_immutable_catalog(
     monkeypatch.setattr(
         runtime_module,
         "fetch_catalog_pointer",
-        lambda url: ("https://example.com/catalog-123.sqlite", checksum, 3),
+        lambda url: ("https://example.com/catalog-123.sqlite", checksum, 4),
     )
 
     def fake_download(
@@ -140,7 +140,7 @@ def test_official_pointer_rejects_incompatible_schema(
     monkeypatch.setattr(
         runtime_module,
         "fetch_catalog_pointer",
-        lambda url: ("https://example.com/catalog.sqlite", "a" * 64, 4),
+        lambda url: ("https://example.com/catalog.sqlite", "a" * 64, 3),
     )
 
     with pytest.raises(RuntimeError, match="schema mismatch"):

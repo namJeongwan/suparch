@@ -23,8 +23,14 @@ from suparch.crawler import IHerbClient, IHerbSitemapClient
 from suparch.dsld import DsldClient, iter_dsld_products, sync_dsld_to_jsonl
 from suparch.enrichment import (
     EnrichmentStats,
-    enrich_iherb_with_dsld,
+    enrich_products_with_dsld,
     enrichment_quality_failures,
+)
+from suparch.kroger import (
+    DEFAULT_SUPPLEMENT_CATEGORY_KEYWORDS,
+    KrogerClient,
+    KrogerSyncStats,
+    iter_kroger_products,
 )
 from suparch.models import Product
 from suparch.parser import IHerbProductParser
@@ -372,10 +378,74 @@ def _dsld_sync(args: argparse.Namespace) -> None:
     print(f"wrote {written} new DSLD products to {args.output}")
 
 
+def _kroger_sync(args: argparse.Namespace) -> None:
+    _validate_catalog_paths({"output": args.output, "report": args.report})
+    client_id = os.environ.get("KROGER_CLIENT_ID", "")
+    client_secret = os.environ.get("KROGER_CLIENT_SECRET", "")
+    if not client_id or not client_secret:
+        raise SystemExit(
+            "KROGER_CLIENT_ID and KROGER_CLIENT_SECRET are required; "
+            "create an application in the Kroger developer portal"
+        )
+
+    stats = KrogerSyncStats()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{args.output.name}.",
+        suffix=".tmp",
+        dir=args.output.parent,
+    )
+    temporary = Path(temporary_name)
+    try:
+        with (
+            KrogerClient(client_id, client_secret) as client,
+            os.fdopen(descriptor, "w", encoding="utf-8") as destination,
+        ):
+            for product in iter_kroger_products(
+                client,
+                terms=args.term,
+                location_id=args.location_id,
+                limit_per_term=args.limit_per_term,
+                category_keywords=(args.category or DEFAULT_SUPPLEMENT_CATEGORY_KEYWORDS),
+                stats=stats,
+            ):
+                destination.write(product.model_dump_json() + "\n")
+            destination.flush()
+            os.fsync(destination.fileno())
+        if stats.imported == 0:
+            raise ValueError("Kroger sync produced no products")
+        if args.report:
+            _write_json_atomic(
+                args.report,
+                {
+                    "source": "Kroger Public Products API",
+                    "location_id": args.location_id,
+                    "terms": args.term,
+                    "category_keywords": list(
+                        args.category or DEFAULT_SUPPLEMENT_CATEGORY_KEYWORDS
+                    ),
+                    "limit_per_term": args.limit_per_term,
+                    "stats": stats.as_dict(),
+                },
+            )
+        os.replace(temporary, args.output)
+    except Exception as error:
+        temporary.unlink(missing_ok=True)
+        raise SystemExit(str(error)) from None
+
+    print(
+        f"wrote {stats.imported} Kroger products to {args.output}; "
+        f"duplicates={stats.duplicates}; non_supplement={stats.non_supplement}; "
+        f"invalid={stats.invalid}; "
+        f"missing_gtin={stats.missing_gtin}; missing_price={stats.missing_price}"
+    )
+
+
 def _enrich_dsld(args: argparse.Namespace) -> None:
+    products_path = args.products or args.iherb
     _validate_catalog_paths(
         {
-            "iHerb input": args.iherb,
+            "retail product input": products_path,
             "DSLD input": args.dsld,
             "DSLD sync metadata": Path(f"{args.dsld.resolve()}.sync.json"),
             "output": args.output,
@@ -384,8 +454,8 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
         database=args.database,
     )
     stats = EnrichmentStats()
-    enriched = enrich_iherb_with_dsld(
-        iter_json_catalog(args.iherb),
+    enriched = enrich_products_with_dsld(
+        iter_json_catalog(products_path),
         iter_dsld_products(args.dsld),
         stats=stats,
         require_label=args.require_label,
@@ -433,7 +503,7 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
         raise SystemExit(str(error)) from None
 
     print(
-        f"wrote {count} iHerb products to {args.output}; "
+        f"wrote {count} retail products to {args.output}; "
         f"DSLD matches={stats.matched}; "
         f"missing labels skipped={stats.skipped_without_label}; "
         f"label_coverage={stats.label_coverage:.2%}"
@@ -444,7 +514,7 @@ def _enrich_dsld(args: argparse.Namespace) -> None:
             args.database,
             metadata={
                 "built_at": datetime.now(UTC).isoformat(),
-                "product_source": "iHerb",
+                "product_source": "retail API/feed",
                 "label_enrichment": "NIH DSLD v9 by UPC",
                 "label_coverage": f"{stats.label_coverage:.6f}",
             },
@@ -570,11 +640,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     dsld_sync.set_defaults(handler=_dsld_sync)
 
+    kroger_sync = subparsers.add_parser(
+        "kroger-sync",
+        help="Sync English/USD offers from Kroger's public Products API",
+    )
+    kroger_sync.add_argument(
+        "--term",
+        action="append",
+        required=True,
+        type=_category_keyword,
+        help="Product search term; repeat for more supplement queries",
+    )
+    kroger_sync.add_argument("--location-id", required=True)
+    kroger_sync.add_argument("--limit-per-term", type=_positive_int, default=100)
+    kroger_sync.add_argument(
+        "--category",
+        action="append",
+        type=_category_keyword,
+        help=(
+            "Required category substring; defaults to known supplement-only categories"
+        ),
+    )
+    kroger_sync.add_argument("--output", type=Path, required=True)
+    kroger_sync.add_argument("--report", type=Path)
+    kroger_sync.set_defaults(handler=_kroger_sync)
+
     enrich_dsld = subparsers.add_parser(
         "enrich-dsld",
-        help="Enrich iHerb products with DSLD labels matched by UPC",
+        help="Enrich retail products with DSLD labels matched by UPC",
     )
-    enrich_dsld.add_argument("--iherb", type=Path, required=True)
+    retail_input = enrich_dsld.add_mutually_exclusive_group(required=True)
+    retail_input.add_argument("--products", type=Path)
+    retail_input.add_argument(
+        "--iherb",
+        type=Path,
+        help="Deprecated alias for --products",
+    )
     enrich_dsld.add_argument("--dsld", type=Path, required=True)
     enrich_dsld.add_argument("--output", type=Path, required=True)
     enrich_dsld.add_argument("--database", type=Path)

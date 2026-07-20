@@ -15,7 +15,7 @@ from suparch.catalog import (
     validate_catalog,
     write_catalog_artifacts,
 )
-from suparch.models import ProductSearchQuery
+from suparch.models import OfferContext, ProductSearchQuery
 from suparch.repositories import SqliteCatalogRepository
 
 SAMPLE_CATALOG = (
@@ -119,7 +119,7 @@ def test_writes_catalog_manifest_and_checksum(database: Path) -> None:
     manifest_path, checksum_path = write_catalog_artifacts(database)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    assert manifest["schema_version"] == 3
+    assert manifest["schema_version"] == 4
     assert manifest["product_count"] == 3
     assert manifest["sha256"] == checksum_path.read_text(encoding="utf-8").split()[0]
 
@@ -173,7 +173,7 @@ def test_reads_immutable_catalog_pointer(
                         "catalog-1/suparch-catalog.sqlite"
                     ),
                     "sha256": checksum,
-                    "schema_version": 3,
+                    "schema_version": 4,
                 }
             ).encode()
         ),
@@ -187,7 +187,7 @@ def test_reads_immutable_catalog_pointer(
             "catalog-1/suparch-catalog.sqlite"
         ),
         checksum,
-        3,
+        4,
     )
 
 
@@ -258,7 +258,24 @@ def test_filters_product_type_and_target_group(database: Path) -> None:
 def test_reports_sqlite_catalog_info(database: Path) -> None:
     info = SqliteCatalogRepository(database).catalog_info()
 
-    assert info.schema_version == 3
+    assert info.schema_version == 4
     assert info.product_count == 3
     assert info.source == "sqlite"
     assert info.database_bytes is not None
+
+
+def test_round_trips_offer_location_and_fulfillment(tmp_path: Path) -> None:
+    product = load_json_catalog(SAMPLE_CATALOG)[0]
+    product.offer_context = OfferContext(
+        location_id="01400943",
+        fulfillment=["curbside", "delivery"],
+    )
+    database = tmp_path / "offer-context.sqlite"
+
+    SQLiteCatalogBuilder().build([product], database)
+    restored = SqliteCatalogRepository(database).get_product(product.id)
+
+    assert restored is not None
+    assert restored.offer_context is not None
+    assert restored.offer_context.location_id == "01400943"
+    assert restored.offer_context.fulfillment == ["curbside", "delivery"]

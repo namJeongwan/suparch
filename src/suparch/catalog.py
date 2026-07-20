@@ -15,7 +15,7 @@ from pydantic import TypeAdapter
 from suparch.models import Product
 from suparch.normalization import normalize_text
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 REQUIRED_COLUMNS = {
     "metadata": {"key", "value"},
     "products": {
@@ -35,6 +35,8 @@ REQUIRED_COLUMNS = {
         "servings_per_container",
         "price_amount",
         "price_currency",
+        "offer_location_id",
+        "fulfillment_json",
         "product_url",
         "crawled_at",
         "locale",
@@ -106,6 +108,8 @@ CREATE TABLE products (
     servings_per_container TEXT,
     price_amount TEXT,
     price_currency TEXT,
+    offer_location_id TEXT,
+    fulfillment_json TEXT NOT NULL,
     product_url TEXT NOT NULL,
     crawled_at TEXT NOT NULL,
     locale TEXT,
@@ -279,10 +283,11 @@ class SQLiteCatalogBuilder:
                         on_market, supplement_form, supplement_form_normalized,
                         product_type, product_type_normalized, target_groups_json,
                         serving_size, servings_per_container,
-                        price_amount, price_currency, product_url,
+                        price_amount, price_currency, offer_location_id,
+                        fulfillment_json, product_url,
                         crawled_at, locale, parser_version, parser_confidence
                     ) VALUES (
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                     """,
                     (
@@ -310,6 +315,16 @@ class SQLiteCatalogBuilder:
                         ),
                         price_amount,
                         price_currency,
+                        (
+                            product.offer_context.location_id
+                            if product.offer_context
+                            else None
+                        ),
+                        json.dumps(
+                            product.offer_context.fulfillment
+                            if product.offer_context
+                            else []
+                        ),
                         str(product.product_url),
                         product.crawled_at.isoformat(),
                         product.locale,
