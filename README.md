@@ -5,17 +5,61 @@
 Search supplements by what's inside.
 
 Suparch is an open-source MCP server for searching, comparing, and calculating
-structured supplement facts. It provides label data and deterministic
-calculations; it does not diagnose conditions or recommend supplements.
+structured supplement facts. It provides label data and deterministic product
+matching; it does not diagnose conditions or decide which nutrients or doses a
+person should take.
 
 ## Current tools
 
 - `search_products`: search by product text, included ingredients, excluded
   ingredients, ingredient forms, product type, target group, brand, and price.
+- `match_products`: rank labels against caller-supplied required and preferred
+  ingredients, including optional minimum and maximum amounts.
 - `get_product`: return the complete normalized label record for a product.
 - `compare_products`: compare per-serving ingredients and forms.
 - `calculate_stack`: add known label amounts for user-supplied daily servings.
 - `get_catalog_info`: report snapshot schema, size, timestamps, and product count.
+
+## Objective product matching
+
+The caller remains responsible for choosing appropriate nutrient targets. Once
+those targets are known, `match_products` can rank products by label fit:
+
+```json
+{
+  "required_ingredients": [
+    {
+      "name": "folate",
+      "minimum_amount": 400,
+      "maximum_amount": 800,
+      "unit": "mcg"
+    },
+    {
+      "name": "iron",
+      "minimum_amount": 18,
+      "maximum_amount": 27,
+      "unit": "mg"
+    }
+  ],
+  "preferred_ingredients": [
+    {"name": "choline", "minimum_amount": 50, "unit": "mg"}
+  ],
+  "target_groups": ["pregnant"],
+  "on_market": true,
+  "limit": 10
+}
+```
+
+Amounts are compared per label serving. Required ingredients are hard presence
+filters and count twice as much as preferred targets in the deterministic
+0-100 fit score. Each result reports missing preferred ingredients,
+caller-defined amount bounds that are missed, unquantified label rows, and
+incompatible units. The bounds are search criteria supplied by the caller, not
+medical intake limits.
+
+Candidate evaluation is bounded and reports `candidate_total`,
+`evaluated_count`, and `truncated`, so a partial ranking is never presented as
+an exhaustive result.
 
 Production deployments use an immutable SQLite snapshot opened in read-only
 mode. The crawler and catalog builder run separately from the public MCP

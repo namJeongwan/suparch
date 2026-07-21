@@ -7,12 +7,12 @@
     "url": "https://github.com/namJeongwan/suparch",
     "source": "github"
   },
-  "version": "0.5.0",
+  "version": "0.6.0",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/namjeongwan/suparch:0.5.0",
-      "version": "0.5.0",
+      "identifier": "ghcr.io/namjeongwan/suparch:0.6.0",
+      "version": "0.6.0",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {

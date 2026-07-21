@@ -7,6 +7,16 @@ PARSER_VERSION = "0.1.0"
 
 ALIASES = {
     "magnesiium": "magnesium",
+    "coq10": "coenzyme q10",
+    "co q10": "coenzyme q10",
+    "co q 10": "coenzyme q10",
+    "coenzyme q 10": "coenzyme q10",
+    "coenzyme q10": "coenzyme q10",
+    "dha": "docosahexaenoic acid",
+    "docosahexaenoic acid": "docosahexaenoic acid",
+    "epa": "eicosapentaenoic acid",
+    "eicosapentaenoic acid": "eicosapentaenoic acid",
+    "l arginine": "arginine",
     "vitamin b1": "thiamin",
     "thiamine": "thiamin",
     "vitamin b2": "riboflavin",
@@ -38,7 +48,7 @@ UNIT_ALIASES = {
     "µg": "mcg",
     "μg": "mcg",
     "ug": "mcg",
-    "mcg dfe": "mcg",
+    "mcg dfe": "mcg DFE",
     "milligram": "mg",
     "milligrams": "mg",
     "microgram": "mcg",
@@ -145,6 +155,8 @@ def normalize_amount(
     if factor is not None:
         return amount * factor, "mcg"
     if unit in {"IU", "CFU"}:
+        return amount, unit
+    if unit == "mcg DFE":
         return amount, unit
     return None, None
 

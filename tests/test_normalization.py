@@ -31,6 +31,21 @@ def test_maps_common_b_vitamin_alias() -> None:
     assert ingredient.canonical_name == "pantothenic acid"
 
 
+def test_maps_common_supplement_aliases() -> None:
+    aliases = {
+        "CoQ10": "coenzyme q10",
+        "Coenzyme Q-10": "coenzyme q10",
+        "Co Q 10": "coenzyme q10",
+        "DHA": "docosahexaenoic acid",
+        "Docosahexaenoic Acid": "docosahexaenoic acid",
+        "EPA": "eicosapentaenoic acid",
+        "L-Arginine Hydrochloride": "arginine",
+    }
+
+    for label, expected in aliases.items():
+        assert canonicalize_ingredient(label)[0] == expected
+
+
 def test_parses_cfu_magnitude() -> None:
     ingredient = build_ingredient("Probiotic Cultures", "50 Billion CFU")
 
@@ -44,3 +59,12 @@ def test_parses_plural_cfu_with_footnote() -> None:
 
     assert ingredient.amount == Decimal("20000000000")
     assert ingredient.unit == "CFU"
+
+
+def test_preserves_dietary_folate_equivalent_unit() -> None:
+    ingredient = build_ingredient("Folate", "833 mcg DFE")
+
+    assert ingredient.amount == Decimal("833")
+    assert ingredient.unit == "mcg DFE"
+    assert ingredient.normalized_amount == Decimal("833")
+    assert ingredient.normalized_unit == "mcg DFE"
