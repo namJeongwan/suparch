@@ -38,7 +38,7 @@ UNIT_ALIASES = {
     "µg": "mcg",
     "μg": "mcg",
     "ug": "mcg",
-    "mcg dfe": "mcg",
+    "mcg dfe": "mcg DFE",
     "milligram": "mg",
     "milligrams": "mg",
     "microgram": "mcg",
@@ -145,6 +145,8 @@ def normalize_amount(
     if factor is not None:
         return amount * factor, "mcg"
     if unit in {"IU", "CFU"}:
+        return amount, unit
+    if unit == "mcg DFE":
         return amount, unit
     return None, None
 

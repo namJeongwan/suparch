@@ -22,12 +22,23 @@ def test_registers_expected_mcp_tools() -> None:
 
     assert {tool.name for tool in tools} == {
         "search_products",
+        "match_products",
         "get_product",
         "get_catalog_info",
         "compare_products",
         "calculate_stack",
     }
     assert mcp.settings.stateless_http is True
+
+    match_schema = next(
+        tool.inputSchema for tool in tools if tool.name == "match_products"
+    )
+    assert match_schema["properties"]["required_ingredients"]["minItems"] == 1
+    assert match_schema["properties"]["required_ingredients"]["maxItems"] == 20
+    assert match_schema["properties"]["limit"]["minimum"] == 1
+    assert match_schema["properties"]["limit"]["maximum"] == 50
+    assert match_schema["properties"]["candidate_limit"]["minimum"] == 50
+    assert match_schema["properties"]["candidate_limit"]["maximum"] == 5000
 
 
 def test_stdio_protocol_initialization() -> None:
@@ -64,7 +75,7 @@ def test_stdio_protocol_initialization() -> None:
 
     response = json.loads(result.stdout.splitlines()[0])
     assert response["result"]["serverInfo"]["name"] == "Suparch"
-    assert response["result"]["serverInfo"]["version"] == "0.5.0"
+    assert response["result"]["serverInfo"]["version"] == "0.6.0"
 
 
 def test_streamable_http_initialization(tmp_path: Path) -> None:

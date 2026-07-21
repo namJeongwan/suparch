@@ -24,7 +24,7 @@ from suparch.normalization import (
 
 DSLD_API_BASE = "https://api.ods.od.nih.gov/dsld/v9"
 DSLD_LABEL_BASE = "https://dsld.od.nih.gov/label"
-DSLD_PARSER_VERSION = "dsld-v9.4"
+DSLD_PARSER_VERSION = "dsld-v9.5"
 
 
 class DsldClient:

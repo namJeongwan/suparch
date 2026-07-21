@@ -1,12 +1,17 @@
 import os
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 from suparch import __version__
 from suparch.models import (
     CatalogInfo,
+    IngredientTarget,
     Product,
     ProductComparisonResult,
+    ProductMatchQuery,
+    ProductMatchResult,
     ProductSearchQuery,
     ProductSearchResult,
     StackResult,
@@ -74,6 +79,48 @@ def search_products(
         offset=offset,
     )
     return service.search_products(search)
+
+
+@mcp.tool()
+def match_products(
+    required_ingredients: Annotated[
+        list[IngredientTarget],
+        Field(min_length=1, max_length=20),
+    ],
+    preferred_ingredients: Annotated[
+        list[IngredientTarget],
+        Field(max_length=20),
+    ]
+    | None = None,
+    query: str | None = None,
+    on_market: bool | None = None,
+    supplement_forms: list[str] | None = None,
+    product_types: list[str] | None = None,
+    target_groups: list[str] | None = None,
+    exclude_ingredients: list[str] | None = None,
+    brands: list[str] | None = None,
+    max_price: Annotated[float, Field(ge=0)] | None = None,
+    currency: Annotated[str, Field(pattern=r"^[A-Z]{3}$")] | None = None,
+    limit: Annotated[int, Field(ge=1, le=50)] = 10,
+    candidate_limit: Annotated[int, Field(ge=50, le=5000)] = 1000,
+) -> ProductMatchResult:
+    """Rank labels against caller-supplied ingredient targets and amount bounds."""
+    request = ProductMatchQuery(
+        required_ingredients=required_ingredients,
+        preferred_ingredients=preferred_ingredients or [],
+        query=query,
+        on_market=on_market,
+        supplement_forms=supplement_forms or [],
+        product_types=product_types or [],
+        target_groups=target_groups or [],
+        exclude_ingredients=exclude_ingredients or [],
+        brands=brands or [],
+        max_price=max_price,
+        currency=currency,
+        limit=limit,
+        candidate_limit=candidate_limit,
+    )
+    return service.match_products(request)
 
 
 @mcp.tool()

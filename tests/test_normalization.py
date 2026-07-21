@@ -44,3 +44,12 @@ def test_parses_plural_cfu_with_footnote() -> None:
 
     assert ingredient.amount == Decimal("20000000000")
     assert ingredient.unit == "CFU"
+
+
+def test_preserves_dietary_folate_equivalent_unit() -> None:
+    ingredient = build_ingredient("Folate", "833 mcg DFE")
+
+    assert ingredient.amount == Decimal("833")
+    assert ingredient.unit == "mcg DFE"
+    assert ingredient.normalized_amount == Decimal("833")
+    assert ingredient.normalized_unit == "mcg DFE"

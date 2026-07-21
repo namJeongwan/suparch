@@ -48,7 +48,13 @@ class InMemoryCatalogRepository:
 
     def search_products(self, search: ProductSearchQuery) -> ProductSearchResult:
         products = [product for product in self._products.values() if _matches(product, search)]
-        products.sort(key=lambda product: (product.brand.casefold(), product.name.casefold()))
+        products.sort(
+            key=lambda product: (
+                product.brand.casefold(),
+                product.name.casefold(),
+                product.id,
+            )
+        )
         total = len(products)
         selected = products[search.offset : search.offset + search.limit]
         return ProductSearchResult(
@@ -288,7 +294,7 @@ class SqliteCatalogRepository:
                 FROM products p
                 {join_sql}
                 {where}
-                ORDER BY lower(p.brand), lower(p.name)
+                ORDER BY lower(p.brand), lower(p.name), p.id
                 LIMIT ? OFFSET ?
                 """,
                 [*parameters, search.limit, search.offset],
