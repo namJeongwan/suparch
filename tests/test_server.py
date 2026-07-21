@@ -64,7 +64,7 @@ def test_stdio_protocol_initialization() -> None:
 
     response = json.loads(result.stdout.splitlines()[0])
     assert response["result"]["serverInfo"]["name"] == "Suparch"
-    assert response["result"]["serverInfo"]["version"] == "0.4.0"
+    assert response["result"]["serverInfo"]["version"] == "0.5.0"
 
 
 def test_streamable_http_initialization(tmp_path: Path) -> None:

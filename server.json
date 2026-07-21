@@ -7,12 +7,12 @@
     "url": "https://github.com/namJeongwan/suparch",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/namjeongwan/suparch:0.4.0",
-      "version": "0.4.0",
+      "identifier": "ghcr.io/namjeongwan/suparch:0.5.0",
+      "version": "0.5.0",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -24,7 +24,7 @@
       "environmentVariables": [
         {
           "name": "SUPARCH_CATALOG_URL",
-          "description": "Authorized iHerb-backed SQLite catalog URL.",
+          "description": "API- or feed-backed SQLite catalog URL.",
           "isRequired": true,
           "isSecret": false
         },

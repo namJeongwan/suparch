@@ -6,6 +6,7 @@ from suparch.dsld import DsldProductMapper
 from suparch.enrichment import (
     EnrichmentStats,
     enrich_iherb_with_dsld,
+    enrich_products_with_dsld,
     enrichment_quality_failures,
 )
 from suparch.models import Product
@@ -48,6 +49,32 @@ def test_enriches_by_upc_without_losing_iherb_identity() -> None:
     assert stats.matched == 1
     assert stats.labeled == 1
     assert stats.label_coverage == 1
+
+
+def test_enriches_kroger_offer_without_losing_retail_identity_or_price() -> None:
+    kroger = Product.model_validate(
+        {
+            **load_json_catalog(SAMPLE_CATALOG)[0].model_dump(mode="json"),
+            "id": "kroger:19279",
+            "source": "kroger",
+            "source_product_id": "19279",
+            "upc": "00012345678905",
+            "active_ingredients": [],
+            "other_ingredients": [],
+            "product_url": "https://www.kroger.com/search?query=00012345678905",
+        }
+    )
+    dsld = DsldProductMapper().map_label(
+        json.loads(DSLD_FIXTURE.read_text(encoding="utf-8"))
+    )
+
+    enriched = list(enrich_products_with_dsld([kroger], [dsld]))[0]
+
+    assert enriched.id == "kroger:19279"
+    assert enriched.source == "kroger"
+    assert enriched.price == kroger.price
+    assert enriched.active_ingredients[0].canonical_name == "magnesium"
+    assert "dsld:19279" in (enriched.parser_version or "")
 
 
 def test_keeps_first_same_status_dsld_match_for_duplicate_upc() -> None:

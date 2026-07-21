@@ -70,7 +70,7 @@ products with verified label rows:
 
 ```bash
 uv run suparch-catalog enrich-dsld \
-  --iherb build/iherb-products.jsonl \
+  --products build/iherb-products.jsonl \
   --dsld build/dsld-products.jsonl \
   --output build/enriched-iherb-products.jsonl \
   --report build/dsld-enrichment-report.json \

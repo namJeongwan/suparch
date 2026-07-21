@@ -1,8 +1,24 @@
 # Data sources
 
-## iHerb product source
+## Kroger product and offer source
 
-iHerb remains Suparch's primary product source. Its current `robots.txt`
+Kroger's public Products API is the default English MVP source:
+
+- <https://developer.kroger.com/reference/>
+- <https://www.postman.com/kroger/the-kroger-co-s-public-workspace/overview>
+
+It returns product identity and UPC data. Supplying a store location ID adds
+location-specific price and availability context. Suparch authenticates with
+OAuth2 client credentials, keeps the secrets in environment variables, and
+stores the resulting retailer records only in the offline snapshot pipeline.
+
+Kroger does not replace a label database. Its products are joined to NIH DSLD
+by normalized GTIN/UPC; products without a matching label can be excluded with
+`enrich-dsld --require-label`.
+
+## Optional iHerb product source
+
+iHerb is an optional authorized-feed source. Its current `robots.txt`
 disallows automated search URLs and publishes a product sitemap. Standard
 product paths are not disallowed by path, but crawler requests currently
 receive HTTP 403, so Suparch does not attempt bypasses.
@@ -24,8 +40,8 @@ matching label before ingredient tools can return complete results.
 
 ## NIH DSLD enrichment
 
-The NIH Office of Dietary Supplements' DSLD v9 API can optionally enrich iHerb
-records that have a matching UPC:
+The NIH Office of Dietary Supplements' DSLD v9 API enriches retailer records
+that have a matching UPC:
 
 - <https://api.ods.od.nih.gov/dsld/v9/>
 - <https://ods.od.nih.gov/Research/Dietary_Supplement_Label_Database.aspx>
@@ -33,9 +49,9 @@ records that have a matching UPC:
 DSLD data is released under CC0. Suparch can map label IDs, UPCs, market status,
 serving data, supplement form, target groups, active ingredient rows, forms,
 amounts, daily values, and other ingredients into its normalized Product model.
-The enriched iHerb record keeps its iHerb identity, URL, and offer; its parser
+The enriched retailer record keeps its source identity, URL, and offer; its parser
 provenance records the matched DSLD label ID and parser version. Standalone
-DSLD records are not iHerb products and are not the default public catalog.
+Standalone DSLD records are not retailer offers and are not the default public catalog.
 
 Each JSONL sync has a provenance sidecar. A completed snapshot must be refreshed
 with a clean `--no-resume` run so changed formulations and market status are
@@ -70,9 +86,10 @@ Suparch's catalog pipeline accepts:
 3. Newline-delimited Product JSON (`.jsonl`).
 4. Saved product HTML supplied by an authorized operator.
 5. A saved-HTML manifest for one atomic batch update.
-6. NIH DSLD v9 API synchronization as optional enrichment input.
+6. NIH DSLD v9 API synchronization as label enrichment input.
 7. iHerb sitemap product references for authorized downstream ingestion.
 8. Approved English/USD iHerb affiliate catalogs in CSV or CSV.GZ format.
+9. Kroger Public Products API responses collected with operator credentials.
 
 This keeps the parser and MCP server useful while data acquisition remains a
 separate, explicitly authorized concern.

@@ -3,7 +3,155 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+import suparch.cli as cli_module
+from suparch.catalog import load_json_catalog
+from suparch.models import OfferContext
+
 AFFILIATE_FIXTURE = Path(__file__).parent / "fixtures" / "iherb_affiliate_feed.csv"
+SAMPLE_CATALOG = (
+    Path(__file__).parents[1] / "src" / "suparch" / "data" / "sample_catalog.json"
+)
+
+
+class FakeKrogerClient:
+    def __init__(self, client_id: str, client_secret: str) -> None:
+        assert client_id == "client-id"
+        assert client_secret == "client-secret"
+
+    def __enter__(self) -> "FakeKrogerClient":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
+
+def kroger_cli_product():
+    product = load_json_catalog(SAMPLE_CATALOG)[0]
+    return product.model_copy(
+        deep=True,
+        update={
+            "id": "kroger:example",
+            "source": "kroger",
+            "source_product_id": "example",
+            "offer_context": OfferContext(
+                location_id="01400943",
+                fulfillment=["curbside"],
+            ),
+        },
+    )
+
+
+def test_kroger_sync_requires_environment_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("KROGER_CLIENT_ID", raising=False)
+    monkeypatch.delenv("KROGER_CLIENT_SECRET", raising=False)
+    args = cli_module.build_parser().parse_args(
+        [
+            "kroger-sync",
+            "--term",
+            "magnesium",
+            "--location-id",
+            "01400943",
+            "--output",
+            str(tmp_path / "products.jsonl"),
+        ]
+    )
+
+    with pytest.raises(SystemExit, match="KROGER_CLIENT_ID"):
+        args.handler(args)
+
+
+def test_kroger_sync_writes_atomic_output_and_report(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("KROGER_CLIENT_ID", "client-id")
+    monkeypatch.setenv("KROGER_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(cli_module, "KrogerClient", FakeKrogerClient)
+
+    def fake_products(client, **kwargs):
+        del client
+        kwargs["stats"].received = 1
+        kwargs["stats"].imported = 1
+        yield kroger_cli_product()
+
+    monkeypatch.setattr(cli_module, "iter_kroger_products", fake_products)
+    output = tmp_path / "products.jsonl"
+    report = tmp_path / "report.json"
+    args = cli_module.build_parser().parse_args(
+        [
+            "kroger-sync",
+            "--term",
+            "magnesium",
+            "--location-id",
+            "01400943",
+            "--output",
+            str(output),
+            "--report",
+            str(report),
+        ]
+    )
+
+    args.handler(args)
+
+    assert json.loads(output.read_text(encoding="utf-8"))["source"] == "kroger"
+    report_payload = json.loads(report.read_text(encoding="utf-8"))
+    assert report_payload["location_id"] == "01400943"
+    assert report_payload["terms"] == ["magnesium"]
+
+
+def test_failed_kroger_sync_preserves_output_and_rejects_path_collision(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("KROGER_CLIENT_ID", "client-id")
+    monkeypatch.setenv("KROGER_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr(cli_module, "KrogerClient", FakeKrogerClient)
+
+    def failed_products(client, **kwargs):
+        del client
+        kwargs["stats"].received = 1
+        kwargs["stats"].imported = 1
+        yield kroger_cli_product()
+        raise ValueError("conflicting product")
+
+    monkeypatch.setattr(cli_module, "iter_kroger_products", failed_products)
+    output = tmp_path / "products.jsonl"
+    output.write_text("previous snapshot\n", encoding="utf-8")
+    args = cli_module.build_parser().parse_args(
+        [
+            "kroger-sync",
+            "--term",
+            "magnesium",
+            "--location-id",
+            "01400943",
+            "--output",
+            str(output),
+        ]
+    )
+    with pytest.raises(SystemExit, match="conflicting product"):
+        args.handler(args)
+    assert output.read_text(encoding="utf-8") == "previous snapshot\n"
+
+    collision = cli_module.build_parser().parse_args(
+        [
+            "kroger-sync",
+            "--term",
+            "magnesium",
+            "--location-id",
+            "01400943",
+            "--output",
+            str(output),
+            "--report",
+            str(output),
+        ]
+    )
+    with pytest.raises(SystemExit, match="output = report"):
+        collision.handler(collision)
 
 
 def test_failed_feed_quality_gate_preserves_previous_output(tmp_path: Path) -> None:

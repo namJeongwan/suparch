@@ -32,8 +32,8 @@ class EnrichmentStats:
         }
 
 
-def enrich_iherb_with_dsld(
-    iherb_products: Iterable[Product],
+def enrich_products_with_dsld(
+    retail_products: Iterable[Product],
     dsld_products: Iterable[Product],
     *,
     stats: EnrichmentStats | None = None,
@@ -41,11 +41,9 @@ def enrich_iherb_with_dsld(
 ) -> Iterator[Product]:
     with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as spool:
         candidate_upcs: set[str] = set()
-        for product in iherb_products:
-            if product.source != "iherb":
-                raise ValueError(
-                    f"Expected iHerb product, got {product.source}:{product.id}"
-                )
+        for product in retail_products:
+            if product.source == "dsld":
+                raise ValueError("DSLD labels cannot be enriched as retail offers")
             if stats is not None:
                 stats.total += 1
             spool.write(product.model_dump_json() + "\n")
@@ -140,6 +138,30 @@ def enrich_iherb_with_dsld(
             if stats is not None and enriched_product.active_ingredients:
                 stats.labeled += 1
             yield enriched_product
+
+
+def enrich_iherb_with_dsld(
+    iherb_products: Iterable[Product],
+    dsld_products: Iterable[Product],
+    *,
+    stats: EnrichmentStats | None = None,
+    require_label: bool = False,
+) -> Iterator[Product]:
+    """Backward-compatible wrapper for the original iHerb-only pipeline."""
+    def validated_products() -> Iterator[Product]:
+        for product in iherb_products:
+            if product.source != "iherb":
+                raise ValueError(
+                    f"Expected iHerb product, got {product.source}:{product.id}"
+                )
+            yield product
+
+    yield from enrich_products_with_dsld(
+        validated_products(),
+        dsld_products,
+        stats=stats,
+        require_label=require_label,
+    )
 
 
 def enrichment_quality_failures(

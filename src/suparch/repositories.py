@@ -379,6 +379,13 @@ class SqliteCatalogRepository:
                     "amount": row["price_amount"],
                     "currency": row["price_currency"],
                 }
+            fulfillment = json.loads(row["fulfillment_json"])
+            offer_context = None
+            if row["offer_location_id"] is not None or fulfillment:
+                offer_context = {
+                    "location_id": row["offer_location_id"],
+                    "fulfillment": fulfillment,
+                }
             products.append(
                 Product(
                     id=row["id"],
@@ -400,6 +407,7 @@ class SqliteCatalogRepository:
                     active_ingredients=ingredients.get(row["id"], []),
                     other_ingredients=others.get(row["id"], []),
                     price=price,
+                    offer_context=offer_context,
                     product_url=row["product_url"],
                     crawled_at=row["crawled_at"],
                     locale=row["locale"],

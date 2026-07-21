@@ -21,9 +21,64 @@ Production deployments use an immutable SQLite snapshot opened in read-only
 mode. The crawler and catalog builder run separately from the public MCP
 process, which makes the server suitable for ephemeral MCP Hub containers.
 
-## English affiliate-feed MVP
+## English Kroger API MVP
 
-The MVP accepts an approved iHerb affiliate catalog as UTF-8 CSV or CSV.GZ.
+The default acquisition path uses Kroger's public Products API for English
+product identity, UPC, current USD price, and location-scoped availability. It
+does not scrape retailer HTML. Create a Kroger developer application, choose a
+store location ID, and keep the OAuth credentials outside the repository:
+
+```bash
+export KROGER_CLIENT_ID=<client-id>
+export KROGER_CLIENT_SECRET=<client-secret>
+
+uv run suparch-catalog kroger-sync \
+  --location-id 01400943 \
+  --term vitamin \
+  --term magnesium \
+  --category "vitamins & supplements" \
+  --category "sports nutrition" \
+  --limit-per-term 100 \
+  --output build/kroger-products.jsonl \
+  --report build/kroger-sync-report.json
+```
+
+Kroger prices depend on `--location-id`. Overlapping query results are
+deduplicated, and non-supplement categories are rejected. Without explicit
+`--category` values the filter accepts common supplement-only categories such
+as `vitamins & supplements`, `dietary supplements`, and `sports nutrition`.
+The report records products without a valid GTIN or price. Each retained offer
+carries its Kroger location ID and available fulfillment modes into MCP
+responses.
+Credentials are accepted only through `KROGER_CLIENT_ID` and
+`KROGER_CLIENT_SECRET`, so they do not appear in command history.
+
+Kroger offers do not contain dependable Supplement Facts. Sync DSLD labels and
+join them by UPC before building the public catalog:
+
+```bash
+uv run suparch-catalog dsld-sync \
+  --query "*" \
+  --status on-market \
+  --limit 1000 \
+  --output build/dsld-products.jsonl
+
+uv run suparch-catalog enrich-dsld \
+  --products build/kroger-products.jsonl \
+  --dsld build/dsld-products.jsonl \
+  --output build/enriched-products.jsonl \
+  --report build/dsld-enrichment-report.json \
+  --require-label \
+  --database build/catalog.sqlite
+```
+
+Use several focused supplement terms for a toy catalog. A production snapshot
+should use a deliberate query inventory and inspect coverage reports before
+publication.
+
+## Optional authorized iHerb affiliate feed
+
+The optional importer accepts an approved iHerb affiliate catalog as UTF-8 CSV or CSV.GZ.
 It deliberately keeps one market contract: English (`en-US`), USD prices, and
 HTTPS `iherb.com` product URLs. Rows outside an English supplement category or
 with another currency are excluded.
@@ -62,12 +117,11 @@ Facts. Run the DSLD enrichment step below before relying on ingredient search,
 comparison, or stack calculation. A direct `--database` build is useful for
 offer/name search but can contain products without label rows.
 
-## Optional NIH DSLD label enrichment
+## NIH DSLD label enrichment
 
-Suparch's product catalog is intended to contain iHerb products. NIH's Dietary
-Supplement Label Database (DSLD) is an optional label source for enrichment
-when an iHerb record can be matched by UPC. DSLD records must not be presented
-as if they were products sold by iHerb.
+NIH's Dietary Supplement Label Database (DSLD) supplies label facts when a
+retail record can be matched by UPC. Standalone DSLD records must not be
+presented as retailer inventory or current offers.
 
 Sync a resumable DSLD JSONL enrichment source:
 
@@ -79,13 +133,13 @@ uv run suparch-catalog dsld-sync \
   --output build/dsld-products.jsonl
 ```
 
-Then enrich an authorized iHerb Product JSON/JSONL source by matching UPCs:
+Then enrich a Kroger or authorized affiliate Product JSON/JSONL source by UPC:
 
 ```bash
 uv run suparch-catalog enrich-dsld \
-  --iherb build/iherb-products.jsonl \
+  --products build/kroger-products.jsonl \
   --dsld build/dsld-products.jsonl \
-  --output build/enriched-iherb-products.jsonl \
+  --output build/enriched-products.jsonl \
   --report build/dsld-enrichment-report.json \
   --min-label-coverage 0 \
   --require-label \
@@ -219,8 +273,8 @@ official affiliate path.
 
 ## Hub deployment
 
-Hub deployments require an authorized iHerb-backed catalog. Suparch does not
-ship NIH records as a substitute for iHerb inventory, pricing, or availability.
+Hub deployments require an API- or feed-backed retail catalog. Suparch does not
+ship NIH records as a substitute for inventory, pricing, or availability.
 
 Run the stateless Streamable HTTP transport:
 
@@ -316,14 +370,14 @@ names plus the total ingredient count. Use `get_product` for the complete label.
 ## Architecture
 
 ```text
-authorized iHerb feed/API --------------> iHerb Product JSONL
-authorized saved HTML -> parser --------> iHerb Product JSONL
-                                                   |
-                                optional DSLD enrichment by UPC
-                                                   |
-                                                   v
-                                         immutable SQLite snapshot
-                                                   |
+Kroger Products API -------------------> retail Product JSONL
+authorized affiliate feed ------------> retail Product JSONL
+                                                  |
+                                       DSLD enrichment by UPC
+                                                  |
+                                                  v
+                                        immutable SQLite snapshot
+                                                  |
 MCP client -> stateless Suparch server -> read-only repository
 ```
 
