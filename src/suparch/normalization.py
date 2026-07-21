@@ -7,6 +7,16 @@ PARSER_VERSION = "0.1.0"
 
 ALIASES = {
     "magnesiium": "magnesium",
+    "coq10": "coenzyme q10",
+    "co q10": "coenzyme q10",
+    "co q 10": "coenzyme q10",
+    "coenzyme q 10": "coenzyme q10",
+    "coenzyme q10": "coenzyme q10",
+    "dha": "docosahexaenoic acid",
+    "docosahexaenoic acid": "docosahexaenoic acid",
+    "epa": "eicosapentaenoic acid",
+    "eicosapentaenoic acid": "eicosapentaenoic acid",
+    "l arginine": "arginine",
     "vitamin b1": "thiamin",
     "thiamine": "thiamin",
     "vitamin b2": "riboflavin",
